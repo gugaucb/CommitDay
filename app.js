@@ -6,18 +6,27 @@
 // Chaves do localStorage
 const STORAGE_KEYS = {
   DEVS: 'commitday_developers',
+  PROJECTS: 'commitday_projects',
+  SELECTED_PROJECT: 'commitday_selected_project_id',
   CONFIG: 'commitday_gitlab_config',
   MODE: 'commitday_data_mode'
 };
 
 // Desenvolvedores padrão para o Modo Demo
 const DEFAULT_DEMO_DEVS = [
-  { id: 'dev-1', name: 'Ana Silva', email: 'ana.silva@empresa.com', username: 'anasilva', team: 'Squad Checkout' },
-  { id: 'dev-2', name: 'Bruno Costa', email: 'bruno.costa@empresa.com', username: 'brunocosta', team: 'Squad Backend' },
-  { id: 'dev-3', name: 'Carla Mendes', email: 'carla.mendes@empresa.com', username: 'carlamendes', team: 'Squad Frontend' },
-  { id: 'dev-4', name: 'Diego Oliveira', email: 'diego.oliveira@empresa.com', username: 'diegooliveira', team: 'Squad Mobile' },
-  { id: 'dev-5', name: 'Elena Rostova', email: 'elena.rostova@empresa.com', username: 'elenarostova', team: 'Squad DevOps' },
-  { id: 'dev-6', name: 'Felipe Santos', email: 'felipe.santos@empresa.com', username: 'felipesantos', team: 'Squad Core' }
+  { id: 'dev-1', name: 'Ana Silva', email: 'ana.silva@empresa.com', username: 'anasilva', team: 'Squad Checkout', projectIds: ['proj-1', 'proj-2'] },
+  { id: 'dev-2', name: 'Bruno Costa', email: 'bruno.costa@empresa.com', username: 'brunocosta', team: 'Squad Backend', projectIds: ['proj-1', 'proj-3'] },
+  { id: 'dev-3', name: 'Carla Mendes', email: 'carla.mendes@empresa.com', username: 'carlamendes', team: 'Squad Frontend', projectIds: ['proj-1'] },
+  { id: 'dev-4', name: 'Diego Oliveira', email: 'diego.oliveira@empresa.com', username: 'diegooliveira', team: 'Squad Mobile', projectIds: ['proj-2'] },
+  { id: 'dev-5', name: 'Elena Rostova', email: 'elena.rostova@empresa.com', username: 'elenarostova', team: 'Squad DevOps', projectIds: ['proj-3'] },
+  { id: 'dev-6', name: 'Felipe Santos', email: 'felipe.santos@empresa.com', username: 'felipesantos', team: 'Squad Core', projectIds: ['proj-3'] }
+];
+
+// Projetos padrão para o Modo Demo
+const DEFAULT_DEMO_PROJECTS = [
+  { id: 'proj-1', name: 'Plataforma E-commerce', description: 'Sistema principal de vendas e checkout', gitlabProjectId: '101', devIds: ['dev-1', 'dev-2', 'dev-3'] },
+  { id: 'proj-2', name: 'App Mobile Core', description: 'Aplicativo iOS/Android dos clientes', gitlabProjectId: '102', devIds: ['dev-1', 'dev-4'] },
+  { id: 'proj-3', name: 'Infraestrutura & Cloud', description: 'Automação CI/CD e Kubernetes', gitlabProjectId: '103', devIds: ['dev-2', 'dev-5', 'dev-6'] }
 ];
 
 // Estado da Aplicação
@@ -26,6 +35,8 @@ const state = {
   periodDays: 30,
   searchTerm: '',
   statusFilter: 'all',
+  selectedProjectId: 'all', // 'all' ou ID do projeto
+  projects: [],
   developers: [],
   gitlabConfig: {
     url: 'https://gitlab.com',
@@ -43,15 +54,37 @@ document.addEventListener('DOMContentLoaded', () => {
   refreshDashboard();
 });
 
-// Carrega configurações e lista de desenvolvedores do localStorage
+// Carrega configurações, projetos e desenvolvedores do localStorage
 function loadStateFromStorage() {
   const savedMode = localStorage.getItem(STORAGE_KEYS.MODE);
   if (savedMode) state.mode = savedMode;
 
+  const savedSelectedProject = localStorage.getItem(STORAGE_KEYS.SELECTED_PROJECT);
+  if (savedSelectedProject) state.selectedProjectId = savedSelectedProject;
+
+  // Carrega ou inicializa projetos
+  const savedProjects = localStorage.getItem(STORAGE_KEYS.PROJECTS);
+  if (savedProjects) {
+    try {
+      state.projects = JSON.parse(savedProjects);
+    } catch (e) {
+      state.projects = [...DEFAULT_DEMO_PROJECTS];
+    }
+  } else {
+    state.projects = [...DEFAULT_DEMO_PROJECTS];
+    saveProjectsToStorage();
+  }
+
+  // Carrega desenvolvedores com migração de dados
   const savedDevs = localStorage.getItem(STORAGE_KEYS.DEVS);
   if (savedDevs) {
     try {
-      state.developers = JSON.parse(savedDevs);
+      const loadedDevs = JSON.parse(savedDevs);
+      // Migração: garante propriedade projectIds em todos os devs
+      state.developers = loadedDevs.map(dev => ({
+        ...dev,
+        projectIds: Array.isArray(dev.projectIds) ? dev.projectIds : []
+      }));
     } catch (e) {
       state.developers = [...DEFAULT_DEMO_DEVS];
     }
@@ -72,12 +105,32 @@ function saveDevelopersToStorage() {
   localStorage.setItem(STORAGE_KEYS.DEVS, JSON.stringify(state.developers));
 }
 
+function saveProjectsToStorage() {
+  localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(state.projects));
+}
+
+function saveSelectedProjectToStorage() {
+  localStorage.setItem(STORAGE_KEYS.SELECTED_PROJECT, state.selectedProjectId);
+}
+
 function saveConfigToStorage() {
   localStorage.setItem(STORAGE_KEYS.CONFIG, JSON.stringify(state.gitlabConfig));
 }
 
 function saveModeToStorage() {
   localStorage.setItem(STORAGE_KEYS.MODE, state.mode);
+}
+
+// Funções Utilitárias de Gerenciamento de Projetos
+function getDevsForProject(projectId) {
+  if (!projectId || projectId === 'all') return state.developers;
+  const project = state.projects.find(p => p.id === projectId);
+  if (!project) return state.developers;
+
+  return state.developers.filter(dev => 
+    (project.devIds && project.devIds.includes(dev.id)) ||
+    (dev.projectIds && dev.projectIds.includes(projectId))
+  );
 }
 
 // Event Listeners da UI
