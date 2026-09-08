@@ -45,6 +45,13 @@
           Configurações API
         </button>
 
+        <button id="manage-projects-btn" class="btn btn-secondary">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+          </svg>
+          Gerenciar Projetos
+        </button>
+
         <button id="manage-devs-btn" class="btn btn-primary">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
@@ -153,6 +160,13 @@
         </div>
 
         <div class="filter-group">
+          <div class="filter-item">
+            <label for="project-select">Projeto:</label>
+            <select id="project-select" class="form-select">
+              <option value="all">Todos os Projetos</option>
+            </select>
+          </div>
+
           <div class="filter-item">
             <label for="period-select">Período:</label>
             <select id="period-select" class="form-select">
@@ -273,6 +287,60 @@
         </div>
         <div class="modal-footer">
           <button class="btn btn-secondary" data-close="modal-manage-devs">Fechar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Gerenciar Projetos -->
+    <div id="modal-manage-projects" class="modal-overlay hidden">
+      <div class="modal-content glass-panel">
+        <div class="modal-header">
+          <h3>Gerenciar Projetos e Vinculação de Devs</h3>
+          <button class="modal-close" data-close="modal-manage-projects">&times;</button>
+        </div>
+        <div class="modal-body">
+          <form id="add-project-form" class="add-dev-form">
+            <h4 id="project-form-title">Adicionar Novo Projeto</h4>
+            <input type="hidden" id="edit-project-id" value="">
+            <div class="form-grid">
+              <div class="form-group">
+                <label for="project-name-input">Nome do Projeto *</label>
+                <input type="text" id="project-name-input" class="form-input" placeholder="Ex: Plataforma E-commerce" required>
+              </div>
+              <div class="form-group">
+                <label for="project-gitlab-id-input">ID do Projeto no GitLab</label>
+                <input type="text" id="project-gitlab-id-input" class="form-input" placeholder="Ex: 101 ou grupo/projeto">
+              </div>
+              <div class="form-group" style="grid-column: span 2;">
+                <label for="project-desc-input">Descrição</label>
+                <input type="text" id="project-desc-input" class="form-input" placeholder="Breve descrição do escopo do projeto">
+              </div>
+            </div>
+
+            <div class="form-group" style="margin-top:0.75rem;">
+              <label>Desenvolvedores Vinculados ao Projeto:</label>
+              <div id="project-devs-checkbox-container" class="devs-checkbox-grid">
+                <!-- Checkboxes dynamically rendered -->
+              </div>
+            </div>
+
+            <div style="display:flex; gap:0.5rem; margin-top:1rem;">
+              <button type="submit" id="save-project-submit-btn" class="btn btn-primary btn-sm">Salvar Projeto</button>
+              <button type="button" id="cancel-project-edit-btn" class="btn btn-secondary btn-sm hidden">Cancelar Edição</button>
+            </div>
+          </form>
+
+          <hr class="divider">
+
+          <h4>Projetos Cadastrados</h4>
+          <div class="devs-list-container">
+            <ul id="projects-manage-list" class="devs-manage-list">
+              <!-- Dynamically populated projects list -->
+            </ul>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" data-close="modal-manage-projects">Fechar</button>
         </div>
       </div>
     </div>

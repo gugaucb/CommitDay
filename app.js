@@ -150,6 +150,15 @@ function setupEventListeners() {
     openModal('modal-manage-devs');
   });
 
+  const manageProjectsBtn = document.getElementById('manage-projects-btn');
+  if (manageProjectsBtn) {
+    manageProjectsBtn.addEventListener('click', () => {
+      resetProjectForm();
+      renderManageProjectsList();
+      openModal('modal-manage-projects');
+    });
+  }
+
   document.querySelectorAll('.modal-close, [data-close]').forEach(btn => {
     btn.addEventListener('click', (e) => {
       const modalId = e.target.getAttribute('data-close') || e.target.closest('.modal-overlay').id;
@@ -158,6 +167,15 @@ function setupEventListeners() {
   });
 
   // Filtros & Pesquisa
+  const projectSelect = document.getElementById('project-select');
+  if (projectSelect) {
+    projectSelect.addEventListener('change', (e) => {
+      state.selectedProjectId = e.target.value;
+      saveSelectedProjectToStorage();
+      refreshDashboard();
+    });
+  }
+
   document.getElementById('period-select').addEventListener('change', (e) => {
     state.periodDays = parseInt(e.target.value, 10);
     refreshDashboard();
@@ -330,50 +348,77 @@ async function fetchGitLabRealCommitData(devs, daysCount) {
   sinceDate.setDate(sinceDate.getDate() - daysCount);
   const sinceISO = sinceDate.toISOString();
 
+  // Set para evitar contagem duplicada do mesmo commit (hash sha)
+  const processedCommitHashes = new Set();
+
   try {
-    let projects = [];
-    
-    // Se ID do projeto foi informado, busca direto
-    if (state.gitlabConfig.projectId) {
-      projects = [{ id: state.gitlabConfig.projectId }];
+    let targetProjectGitLabIds = [];
+
+    if (state.selectedProjectId && state.selectedProjectId !== 'all') {
+      const selectedProj = state.projects.find(p => p.id === state.selectedProjectId);
+      if (selectedProj && selectedProj.gitlabProjectId) {
+        targetProjectGitLabIds.push(selectedProj.gitlabProjectId);
+      }
     } else {
-      // Busca primeiros 20 projetos acessíveis
+      // Coleta todos os IDs GitLab dos projetos cadastrados
+      state.projects.forEach(p => {
+        if (p.gitlabProjectId) targetProjectGitLabIds.push(p.gitlabProjectId);
+      });
+      if (state.gitlabConfig.projectId) {
+        targetProjectGitLabIds.push(state.gitlabConfig.projectId);
+      }
+    }
+
+    // Se nenhum ID de projeto foi especificado, busca os 20 projetos mais recentes
+    if (targetProjectGitLabIds.length === 0) {
       const res = await fetch(`${state.gitlabConfig.url}/api/v4/projects?membership=true&per_page=20&order_by=last_activity_at`, {
         headers: { 'PRIVATE-TOKEN': state.gitlabConfig.token }
       });
       if (res.ok) {
-        projects = await res.json();
+        const fetchedProjects = await res.json();
+        targetProjectGitLabIds = fetchedProjects.map(p => p.id);
       }
     }
 
-    for (const project of projects) {
-      const commitsRes = await fetch(`${state.gitlabConfig.url}/api/v4/projects/${project.id}/repository/commits?since=${sinceISO}&per_page=100`, {
-        headers: { 'PRIVATE-TOKEN': state.gitlabConfig.token }
-      });
+    // Executa busca de commits para cada ID de projeto
+    for (const projId of targetProjectGitLabIds) {
+      try {
+        const commitsRes = await fetch(`${state.gitlabConfig.url}/api/v4/projects/${encodeURIComponent(projId)}/repository/commits?since=${sinceISO}&per_page=100`, {
+          headers: { 'PRIVATE-TOKEN': state.gitlabConfig.token }
+        });
 
-      if (!commitsRes.ok) continue;
-      const commits = await commitsRes.json();
+        if (!commitsRes.ok) continue;
+        const commits = await commitsRes.json();
 
-      commits.forEach(commit => {
-        const commitDate = new Date(commit.created_at || commit.committed_date);
-        const dateStr = formatDateKey(commitDate);
-        const authorEmail = (commit.author_email || '').toLowerCase();
-        const authorName = (commit.author_name || '').toLowerCase();
+        commits.forEach(commit => {
+          // Previne duplicatas se o mesmo commit vier em buscas múltiplas
+          const commitKey = `${commit.id}-${commit.author_email}`;
+          if (processedCommitHashes.has(commitKey)) return;
+          processedCommitHashes.add(commitKey);
 
-        // Mapeia commit para o desenvolvedor correspondente por e-mail ou username/nome
-        const matchedDev = devs.find(d => 
-          d.email.toLowerCase() === authorEmail || 
-          d.name.toLowerCase() === authorName ||
-          (d.username && authorEmail.includes(d.username.toLowerCase()))
-        );
+          const commitDate = new Date(commit.created_at || commit.committed_date);
+          const dateStr = formatDateKey(commitDate);
+          const authorEmail = (commit.author_email || '').toLowerCase();
+          const authorName = (commit.author_name || '').toLowerCase();
 
-        if (matchedDev) {
-          if (!data[matchedDev.id][dateStr]) {
-            data[matchedDev.id][dateStr] = 0;
+          // Mapeia commit para o desenvolvedor correspondente por e-mail ou username/nome
+          const matchedDev = devs.find(d => 
+            d.email.toLowerCase() === authorEmail || 
+            d.name.toLowerCase() === authorName ||
+            (d.username && authorEmail.includes(d.username.toLowerCase()))
+          );
+
+          if (matchedDev) {
+            if (!data[matchedDev.id]) data[matchedDev.id] = {};
+            if (!data[matchedDev.id][dateStr]) {
+              data[matchedDev.id][dateStr] = 0;
+            }
+            data[matchedDev.id][dateStr]++;
           }
-          data[matchedDev.id][dateStr]++;
-        }
-      });
+        });
+      } catch (e) {
+        console.warn(`Erro ao buscar commits do projeto GitLab ID ${projId}:`, e);
+      }
     }
   } catch (err) {
     console.error('Erro ao buscar dados do GitLab:', err);
@@ -439,12 +484,31 @@ function getPeriodDaysList(count) {
   return days;
 }
 
+// Renderiza as Opções do Seletor de Projetos
+function renderProjectSelectOptions() {
+  const selectEl = document.getElementById('project-select');
+  if (!selectEl) return;
+
+  const optionsHtml = `
+    <option value="all" ${state.selectedProjectId === 'all' ? 'selected' : ''}>Todos os Projetos (${state.developers.length} devs)</option>
+    ${state.projects.map(p => {
+      const devsCount = getDevsForProject(p.id).length;
+      return `<option value="${p.id}" ${state.selectedProjectId === p.id ? 'selected' : ''}>${escapeHtml(p.name)} (${devsCount} devs)</option>`;
+    }).join('')}
+  `;
+
+  selectEl.innerHTML = optionsHtml;
+}
+
 // Renderização dos Componentes
 function renderDashboardComponents() {
+  renderProjectSelectOptions();
+
   const periodDaysList = getPeriodDaysList(state.periodDays);
+  const activeDevs = getDevsForProject(state.selectedProjectId);
 
   // Calcula estatísticas individuais por dev
-  const devStatsList = state.developers.map(dev => {
+  const devStatsList = activeDevs.map(dev => {
     let workingDaysTotal = 0;
     let workingDaysWithCommits = 0;
     let totalCommits = 0;
@@ -744,6 +808,178 @@ function renderManageDevsList() {
     });
   });
 }
+
+// Renderiza a Lista e Formulário no Modal de Gerenciamento de Projetos
+function renderManageProjectsList() {
+  const container = document.getElementById('projects-manage-list');
+  const checkboxContainer = document.getElementById('project-devs-checkbox-container');
+  const editId = document.getElementById('edit-project-id').value;
+
+  const currentEditingProject = editId ? state.projects.find(p => p.id === editId) : null;
+  const selectedDevIds = currentEditingProject ? (currentEditingProject.devIds || []) : [];
+
+  // Renderiza Checkboxes dos Desenvolvedores
+  if (checkboxContainer) {
+    checkboxContainer.innerHTML = state.developers.map(dev => {
+      const isChecked = selectedDevIds.includes(dev.id);
+      return `
+        <label class="checkbox-item">
+          <input type="checkbox" name="project-dev-cb" value="${dev.id}" ${isChecked ? 'checked' : ''}>
+          <span>${escapeHtml(dev.name)}</span>
+        </label>
+      `;
+    }).join('');
+  }
+
+  // Renderiza Lista de Projetos
+  if (container) {
+    container.innerHTML = state.projects.map(proj => {
+      const devCount = (proj.devIds || []).length;
+      return `
+        <li class="dev-manage-item">
+          <div>
+            <strong>${escapeHtml(proj.name)}</strong> ${proj.gitlabProjectId ? `<small style="color:var(--text-dim);">(ID GitLab: ${escapeHtml(proj.gitlabProjectId)})</small>` : ''}
+            <div style="font-size:0.75rem; color:var(--text-dim);">${escapeHtml(proj.description || 'Sem descrição')} | <strong>${devCount} dev(s) vinculados</strong></div>
+          </div>
+          <div style="display:flex; gap:0.4rem;">
+            <button class="btn btn-secondary btn-sm" data-edit-project="${proj.id}" title="Editar Projeto">
+              ✏️
+            </button>
+            <button class="btn-icon-danger" data-remove-project="${proj.id}" title="Remover Projeto">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              </svg>
+            </button>
+          </div>
+        </li>
+      `;
+    }).join('');
+
+    // Eventos de Editar
+    container.querySelectorAll('[data-edit-project]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const id = e.currentTarget.getAttribute('data-edit-project');
+        const proj = state.projects.find(p => p.id === id);
+        if (!proj) return;
+
+        document.getElementById('edit-project-id').value = proj.id;
+        document.getElementById('project-name-input').value = proj.name;
+        document.getElementById('project-gitlab-id-input').value = proj.gitlabProjectId || '';
+        document.getElementById('project-desc-input').value = proj.description || '';
+        document.getElementById('project-form-title').textContent = 'Editar Projeto';
+        document.getElementById('save-project-submit-btn').textContent = 'Atualizar Projeto';
+        document.getElementById('cancel-project-edit-btn').classList.remove('hidden');
+
+        renderManageProjectsList();
+      });
+    });
+
+    // Eventos de Remover
+    container.querySelectorAll('[data-remove-project]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const idToRemove = e.currentTarget.getAttribute('data-remove-project');
+        state.projects = state.projects.filter(p => p.id !== idToRemove);
+        
+        // Remove projeto das referências dos devs
+        state.developers.forEach(dev => {
+          if (dev.projectIds) {
+            dev.projectIds = dev.projectIds.filter(pid => pid !== idToRemove);
+          }
+        });
+
+        if (state.selectedProjectId === idToRemove) {
+          state.selectedProjectId = 'all';
+          saveSelectedProjectToStorage();
+        }
+
+        saveProjectsToStorage();
+        saveDevelopersToStorage();
+        resetProjectForm();
+        renderManageProjectsList();
+        refreshDashboard();
+      });
+    });
+  }
+}
+
+function resetProjectForm() {
+  document.getElementById('edit-project-id').value = '';
+  document.getElementById('add-project-form').reset();
+  document.getElementById('project-form-title').textContent = 'Adicionar Novo Projeto';
+  document.getElementById('save-project-submit-btn').textContent = 'Salvar Projeto';
+  document.getElementById('cancel-project-edit-btn').classList.add('hidden');
+}
+
+// Configuração do Submit do Formulário de Projeto
+document.addEventListener('DOMContentLoaded', () => {
+  const addProjectForm = document.getElementById('add-project-form');
+  const cancelEditBtn = document.getElementById('cancel-project-edit-btn');
+
+  if (cancelEditBtn) {
+    cancelEditBtn.addEventListener('click', () => {
+      resetProjectForm();
+      renderManageProjectsList();
+    });
+  }
+
+  if (addProjectForm) {
+    addProjectForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const editId = document.getElementById('edit-project-id').value;
+      const name = document.getElementById('project-name-input').value.trim();
+      const gitlabProjectId = document.getElementById('project-gitlab-id-input').value.trim();
+      const description = document.getElementById('project-desc-input').value.trim();
+
+      // Pega IDs dos desenvolvedores marcados nos checkboxes
+      const checkedDevBoxes = document.querySelectorAll('input[name="project-dev-cb"]:checked');
+      const selectedDevIds = Array.from(checkedDevBoxes).map(cb => cb.value);
+
+      if (!name) return;
+
+      if (editId) {
+        // Atualizar Projeto Existente
+        const projectIndex = state.projects.findIndex(p => p.id === editId);
+        if (projectIndex !== -1) {
+          state.projects[projectIndex] = {
+            ...state.projects[projectIndex],
+            name,
+            gitlabProjectId,
+            description,
+            devIds: selectedDevIds
+          };
+        }
+      } else {
+        // Criar Novo Projeto
+        const newProj = {
+          id: 'proj-' + Date.now(),
+          name,
+          gitlabProjectId,
+          description,
+          devIds: selectedDevIds
+        };
+        state.projects.push(newProj);
+      }
+
+      // Atualiza referências cruzadas nos devs
+      const targetProjectId = editId || state.projects[state.projects.length - 1].id;
+      state.developers.forEach(dev => {
+        if (!dev.projectIds) dev.projectIds = [];
+        if (selectedDevIds.includes(dev.id)) {
+          if (!dev.projectIds.includes(targetProjectId)) dev.projectIds.push(targetProjectId);
+        } else {
+          dev.projectIds = dev.projectIds.filter(pid => pid !== targetProjectId);
+        }
+      });
+
+      saveProjectsToStorage();
+      saveDevelopersToStorage();
+      resetProjectForm();
+      renderManageProjectsList();
+      refreshDashboard();
+    });
+  }
+});
 
 // Exportar Relatório de Aderência em CSV
 function exportAdherenceReportCSV() {
