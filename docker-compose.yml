@@ -1,9 +1,9 @@
 services:
   commitday:
+    image: gugaucb/commitday:latest
     build:
       context: .
       dockerfile: Dockerfile
-    image: commitday:latest
     container_name: commitday
     restart: unless-stopped
     ports:

@@ -1,5 +1,8 @@
 # CommitDay 📊
 
+[![Docker Image](https://img.shields.io/badge/Docker%20Hub-gugaucb%2Fcommitday-2496ED?logo=docker&logoColor=white)](https://hub.docker.com/r/gugaucb/commitday)
+[![GitHub Release](https://img.shields.io/github/v/release/gugaucb/CommitDay?color=success)](https://github.com/gugaucb/CommitDay/releases)
+
 **CommitDay** é um dashboard web moderno, ágil e interativo desenvolvido para gerentes de equipes de desenvolvimento monitorarem a constância e aderência diária de commits no GitLab, prevenindo perda de código e garantindo a continuidade do fluxo de trabalho.
 
 ---
@@ -20,9 +23,26 @@
 
 ---
 
-## 🐳 Executando com Docker Compose (Recomendado)
+## 🐳 Executando com Docker
 
-A forma mais simples e robusta de executar o CommitDay com persistência permanente em SQLite:
+### Opção A: Execução Direta via Docker Hub (Mais Rápido)
+
+Execute diretamente a imagem oficial sem precisar clonar o repositório:
+
+```bash
+docker run -d \
+  --name commitday \
+  -p 3000:3000 \
+  -v ${PWD}/data:/app/data \
+  --restart unless-stopped \
+  gugaucb/commitday:latest
+```
+
+> No Linux/macOS substitua `${PWD}/data` por `$(pwd)/data`.
+
+### Opção B: Via Docker Compose
+
+Clone o repositório e suba com um único comando:
 
 ```bash
 # 1. Subir o container em segundo plano
