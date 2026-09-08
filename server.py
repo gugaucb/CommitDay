@@ -102,7 +102,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 def serve_index():
     index_file = os.path.join(BASE_DIR, "index.html")
     if os.path.exists(index_file):
-        return FileResponse(index_file)
+        return FileResponse(index_file, headers={"Cache-Control": "no-cache, must-revalidate"})
     raise HTTPException(status_code=404, detail="index.html não encontrado")
 
 
@@ -110,7 +110,7 @@ def serve_index():
 def serve_css():
     css_file = os.path.join(BASE_DIR, "style.css")
     if os.path.exists(css_file):
-        return FileResponse(css_file, media_type="text/css")
+        return FileResponse(css_file, media_type="text/css", headers={"Cache-Control": "no-cache, must-revalidate"})
     raise HTTPException(status_code=404, detail="style.css não encontrado")
 
 
@@ -118,7 +118,7 @@ def serve_css():
 def serve_js():
     js_file = os.path.join(BASE_DIR, "app.js")
     if os.path.exists(js_file):
-        return FileResponse(js_file, media_type="application/javascript")
+        return FileResponse(js_file, media_type="application/javascript", headers={"Cache-Control": "no-cache, must-revalidate"})
     raise HTTPException(status_code=404, detail="app.js não encontrado")
 
 
