@@ -23,6 +23,22 @@
 
 ---
 
+## 📸 Telas do Sistema (Screenshots)
+
+### 📊 Visão Geral do Dashboard
+Monitoramento contínuo de commits diários, cálculo automático de taxa de aderência útil, indicadores de streak 🔥, alertas de atenção e status de persistência em tempo real:
+
+![CommitDay Dashboard Overview](docs/images/dashboard-overview.png)
+
+### ⚙️ Modais de Gestão e Configurações
+
+| 📁 Gestão de Projetos & PAT | 👥 Gestão de Devs & Squads | 🔑 Configurações GitLab API |
+| :---: | :---: | :---: |
+| [![Gestão de Projetos](docs/images/modal-manage-projects.png)](docs/images/modal-manage-projects.png) | [![Gestão de Devs](docs/images/modal-manage-devs.png)](docs/images/modal-manage-devs.png) | [![Configurações API](docs/images/modal-gitlab-config.png)](docs/images/modal-gitlab-config.png) |
+| *PAT individual por projeto, vinculação N:N de devs e teste de conexão imediato.* | *Cadastro ágil de desenvolvedores por nome, usuário GitLab e squad.* | *Configuração global com token fallback e escopos de permissão.* |
+
+---
+
 ## 🐳 Executando com Docker
 
 ### Opção A: Execução Direta via Docker Hub (Mais Rápido)
