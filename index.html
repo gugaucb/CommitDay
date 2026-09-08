@@ -254,7 +254,8 @@
         </div>
         <div class="modal-body">
           <form id="add-dev-form" class="add-dev-form">
-            <h4>Adicionar Novo Desenvolvedor</h4>
+            <h4 id="dev-form-title">Adicionar Novo Desenvolvedor</h4>
+            <input type="hidden" id="edit-dev-id" value="">
             <div class="form-grid">
               <div class="form-group">
                 <label for="dev-name-input">Nome Completo *</label>
@@ -273,7 +274,10 @@
                 <input type="text" id="dev-team-input" class="form-input" placeholder="Squad Checkout">
               </div>
             </div>
-            <button type="submit" class="btn btn-primary btn-sm">Adicionar Desenvolvedor</button>
+            <div style="display:flex; gap:0.5rem; margin-top:1rem;">
+              <button type="submit" id="save-dev-submit-btn" class="btn btn-primary btn-sm">Adicionar Desenvolvedor</button>
+              <button type="button" id="cancel-dev-edit-btn" class="btn btn-secondary btn-sm hidden">Cancelar Edição</button>
+            </div>
           </form>
 
           <hr class="divider">

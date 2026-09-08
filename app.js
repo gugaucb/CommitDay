@@ -294,6 +294,7 @@ function setupEventListeners() {
   document.getElementById('config-btn').addEventListener('click', () => openModal('modal-gitlab-config'));
   document.getElementById('banner-config-btn').addEventListener('click', () => openModal('modal-gitlab-config'));
   document.getElementById('manage-devs-btn').addEventListener('click', () => {
+    resetDevForm();
     renderManageDevsList();
     openModal('modal-manage-devs');
   });
@@ -339,9 +340,10 @@ function setupEventListeners() {
     renderDashboardComponents();
   });
 
-  // Formulário Adicionar Dev
+  // Formulário Adicionar / Editar Dev
   document.getElementById('add-dev-form').addEventListener('submit', (e) => {
     e.preventDefault();
+    const editId = document.getElementById('edit-dev-id').value;
     const name = document.getElementById('dev-name-input').value.trim();
     const email = document.getElementById('dev-email-input').value.trim();
     const username = document.getElementById('dev-username-input').value.trim();
@@ -349,20 +351,39 @@ function setupEventListeners() {
 
     if (!name || !email) return;
 
-    const newDev = {
-      id: 'dev-' + Date.now(),
-      name,
-      email,
-      username: username || email.split('@')[0],
-      team
-    };
+    if (editId) {
+      const dev = state.developers.find(d => d.id === editId);
+      if (dev) {
+        dev.name = name;
+        dev.email = email;
+        dev.username = username || email.split('@')[0];
+        dev.team = team;
+      }
+    } else {
+      const newDev = {
+        id: 'dev-' + Date.now(),
+        name,
+        email,
+        username: username || email.split('@')[0],
+        team,
+        projectIds: []
+      };
+      state.developers.push(newDev);
+    }
 
-    state.developers.push(newDev);
     saveDevelopersToStorage();
-    e.target.reset();
+    resetDevForm();
     renderManageDevsList();
+    renderManageProjectsList();
     refreshDashboard();
   });
+
+  const cancelDevEditBtn = document.getElementById('cancel-dev-edit-btn');
+  if (cancelDevEditBtn) {
+    cancelDevEditBtn.addEventListener('click', () => {
+      resetDevForm();
+    });
+  }
 
   // Formulário GitLab Config
   document.getElementById('gitlab-config-form').addEventListener('submit', (e) => {
@@ -417,6 +438,11 @@ function openModal(modalId) {
 function closeModal(modalId) {
   const modal = document.getElementById(modalId);
   if (modal) modal.classList.add('hidden');
+  if (modalId === 'modal-manage-devs') {
+    resetDevForm();
+  } else if (modalId === 'modal-manage-projects') {
+    resetProjectForm();
+  }
 }
 
 // Atualiza os Dados e a Interface
@@ -917,30 +943,88 @@ function renderDevCardsGrid(filteredDevStats) {
   }).join('');
 }
 
+// Reseta o Formulário de Desenvolvedores
+function resetDevForm() {
+  const editIdInput = document.getElementById('edit-dev-id');
+  if (editIdInput) editIdInput.value = '';
+  const form = document.getElementById('add-dev-form');
+  if (form) form.reset();
+  const title = document.getElementById('dev-form-title');
+  if (title) title.textContent = 'Adicionar Novo Desenvolvedor';
+  const submitBtn = document.getElementById('save-dev-submit-btn');
+  if (submitBtn) submitBtn.textContent = 'Adicionar Desenvolvedor';
+  const cancelBtn = document.getElementById('cancel-dev-edit-btn');
+  if (cancelBtn) cancelBtn.classList.add('hidden');
+}
+
 // Renderiza a Lista do Modal de Gerenciamento de Devs
 function renderManageDevsList() {
   const container = document.getElementById('devs-manage-list');
+  if (!container) return;
+
   container.innerHTML = state.developers.map(dev => `
     <li class="dev-manage-item">
       <div>
         <strong>${escapeHtml(dev.name)}</strong> (${escapeHtml(dev.email)})
         <div style="font-size:0.75rem; color:var(--text-dim);">Squad: ${escapeHtml(dev.team)} | User: @${escapeHtml(dev.username)}</div>
       </div>
-      <button class="btn-icon-danger" data-remove-dev="${dev.id}" title="Remover Desenvolvedor">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polyline points="3 6 5 6 21 6"></polyline>
-          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-        </svg>
-      </button>
+      <div style="display:flex; gap:0.4rem; align-items:center;">
+        <button class="btn btn-secondary btn-sm" data-edit-dev="${dev.id}" title="Editar Desenvolvedor">
+          ✏️
+        </button>
+        <button class="btn-icon-danger" data-remove-dev="${dev.id}" title="Remover Desenvolvedor">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="3 6 5 6 21 6"></polyline>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+          </svg>
+        </button>
+      </div>
     </li>
   `).join('');
 
+  // Eventos de Editar Dev
+  container.querySelectorAll('[data-edit-dev]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const id = e.currentTarget.getAttribute('data-edit-dev');
+      const dev = state.developers.find(d => d.id === id);
+      if (!dev) return;
+
+      document.getElementById('edit-dev-id').value = dev.id;
+      document.getElementById('dev-name-input').value = dev.name;
+      document.getElementById('dev-email-input').value = dev.email;
+      document.getElementById('dev-username-input').value = dev.username || '';
+      document.getElementById('dev-team-input').value = dev.team || '';
+      document.getElementById('dev-form-title').textContent = 'Editar Desenvolvedor';
+      document.getElementById('save-dev-submit-btn').textContent = 'Atualizar Desenvolvedor';
+      document.getElementById('cancel-dev-edit-btn').classList.remove('hidden');
+
+      document.getElementById('dev-name-input').focus();
+    });
+  });
+
+  // Eventos de Remover Dev
   container.querySelectorAll('[data-remove-dev]').forEach(btn => {
     btn.addEventListener('click', (e) => {
       const idToRemove = e.currentTarget.getAttribute('data-remove-dev');
+      const editId = document.getElementById('edit-dev-id')?.value;
+      if (editId === idToRemove) {
+        resetDevForm();
+      }
+
       state.developers = state.developers.filter(d => d.id !== idToRemove);
+
+      // Remove referência de projetos vinculados
+      state.projects.forEach(p => {
+        if (p.devIds) {
+          p.devIds = p.devIds.filter(id => id !== idToRemove);
+        }
+      });
+      saveProjectsToStorage();
+
       saveDevelopersToStorage();
+      resetDevForm();
       renderManageDevsList();
+      renderManageProjectsList();
       refreshDashboard();
     });
   });

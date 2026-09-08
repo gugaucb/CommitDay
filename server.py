@@ -16,7 +16,7 @@ import storage
 app = FastAPI(
     title="CommitDay API",
     description="Backend de persistência e monitoramento de commits do GitLab",
-    version="1.2.0",
+    version="1.5.0",
 )
 
 # Habilita CORS para desenvolvimento flexível
