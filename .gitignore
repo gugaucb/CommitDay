@@ -11,3 +11,16 @@ scratch/
 .vscode/
 .idea/
 *.log
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+
+# App Data & Database (Volume)
+data/
+*.db
+*.db-journal
+.env

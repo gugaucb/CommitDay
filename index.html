@@ -404,7 +404,13 @@
     <!-- Footer -->
     <footer class="app-footer">
       <span>CommitDay &copy; 2026 — Monitoramento Ágil e Aderência ao GitLab</span>
-      <span class="footer-status" id="footer-status-label">Modo: Demonstração</span>
+      <div style="display:flex; align-items:center; gap:1.25rem;">
+        <span id="storage-status-indicator" class="storage-indicator" title="Detectando persistência...">
+          <span class="storage-dot"></span>
+          <span id="storage-status-text">Detectando...</span>
+        </span>
+        <span class="footer-status" id="footer-status-label">Modo: Demonstração</span>
+      </div>
     </footer>
   </div>
 

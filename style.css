@@ -967,3 +967,38 @@ body {
   font-size: 0.65rem;
   color: var(--accent-primary);
 }
+
+/* Storage Persistence Indicator in Footer */
+.storage-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-color);
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  transition: all var(--transition-fast);
+}
+
+.storage-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  display: inline-block;
+  transition: background var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.storage-dot.sqlite,
+.storage-dot.file {
+  background: var(--color-success);
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.7);
+}
+
+.storage-dot.local {
+  background: var(--color-warning);
+  box-shadow: 0 0 6px rgba(245, 158, 11, 0.6);
+}

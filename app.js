@@ -47,12 +47,135 @@ const state = {
   isLoading: false
 };
 
+// Controle de Conexão com o Backend (SQLite / Arquivo / Local)
+const backendState = {
+  active: false,
+  storageType: 'local', // 'sqlite' | 'file' | 'local'
+  storagePath: ''
+};
+
 // Inicialização da Aplicação
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   loadStateFromStorage();
   setupEventListeners();
   refreshDashboard();
+  updateStorageIndicator();
+
+  // Tenta conectar ao backend FastAPI (SQLite/Arquivo)
+  await initBackendStorage();
 });
+
+// Sonda o backend e inicializa a persistência remota
+async function initBackendStorage() {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2000);
+
+    const res = await fetch('/api/health', { signal: controller.signal });
+    clearTimeout(timeoutId);
+
+    if (res.ok) {
+      const health = await res.json();
+      backendState.active = true;
+      backendState.storageType = health.storage_type || 'sqlite';
+      backendState.storagePath = health.storage_path || '';
+
+      // Busca dados sincronizados do servidor
+      const dataRes = await fetch('/api/data');
+      if (dataRes.ok) {
+        const serverData = await dataRes.json();
+        
+        if (Array.isArray(serverData.projects) && serverData.projects.length > 0) {
+          state.projects = serverData.projects.map(proj => ({
+            ...proj,
+            gitlabUrl: proj.gitlabUrl || '',
+            gitlabToken: proj.gitlabToken || ''
+          }));
+        }
+        if (Array.isArray(serverData.developers) && serverData.developers.length > 0) {
+          state.developers = serverData.developers.map(dev => ({
+            ...dev,
+            projectIds: Array.isArray(dev.projectIds) ? dev.projectIds : []
+          }));
+        }
+        if (serverData.config) {
+          state.gitlabConfig = serverData.config;
+        }
+        if (serverData.mode) {
+          state.mode = serverData.mode;
+        }
+        if (serverData.selectedProjectId) {
+          state.selectedProjectId = serverData.selectedProjectId;
+        }
+
+        // Salva cópia local para resiliência
+        localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(state.projects));
+        localStorage.setItem(STORAGE_KEYS.DEVS, JSON.stringify(state.developers));
+        localStorage.setItem(STORAGE_KEYS.CONFIG, JSON.stringify(state.gitlabConfig));
+        localStorage.setItem(STORAGE_KEYS.MODE, state.mode);
+        localStorage.setItem(STORAGE_KEYS.SELECTED_PROJECT, state.selectedProjectId);
+
+        refreshDashboard();
+      }
+    }
+  } catch (e) {
+    // Backend offline ou modo puramente estático
+    backendState.active = false;
+    backendState.storageType = 'local';
+  }
+
+  updateStorageIndicator();
+}
+
+// Atualiza o indicador visual de armazenamento no rodapé
+function updateStorageIndicator() {
+  const indicator = document.getElementById('storage-status-indicator');
+  const text = document.getElementById('storage-status-text');
+  const dot = indicator ? indicator.querySelector('.storage-dot') : null;
+
+  if (!indicator || !text) return;
+
+  if (backendState.active) {
+    if (backendState.storageType === 'sqlite') {
+      if (dot) dot.className = 'storage-dot sqlite';
+      text.textContent = 'Armazenamento: SQLite';
+      indicator.title = `Persistência ativa em SQLite (${backendState.storagePath})`;
+    } else if (backendState.storageType === 'file') {
+      if (dot) dot.className = 'storage-dot file';
+      text.textContent = 'Armazenamento: Arquivo JSON';
+      indicator.title = `Persistência ativa em Arquivo JSON (${backendState.storagePath})`;
+    }
+  } else {
+    if (dot) dot.className = 'storage-dot local';
+    text.textContent = 'Armazenamento: Navegador';
+    indicator.title = 'Persistência no localStorage do navegador (sem backend)';
+  }
+}
+
+// Sincroniza dados com o backend com debounce
+let syncDebounceTimer = null;
+function syncStateToBackend() {
+  if (!backendState.active) return;
+
+  if (syncDebounceTimer) clearTimeout(syncDebounceTimer);
+  syncDebounceTimer = setTimeout(async () => {
+    try {
+      await fetch('/api/data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          developers: state.developers,
+          projects: state.projects,
+          config: state.gitlabConfig,
+          mode: state.mode,
+          selectedProjectId: state.selectedProjectId
+        })
+      });
+    } catch (err) {
+      console.warn('Erro ao sincronizar com o backend:', err);
+    }
+  }, 250);
+}
 
 // Carrega configurações, projetos e desenvolvedores do localStorage
 function loadStateFromStorage() {
@@ -109,23 +232,29 @@ function loadStateFromStorage() {
 
 function saveDevelopersToStorage() {
   localStorage.setItem(STORAGE_KEYS.DEVS, JSON.stringify(state.developers));
+  syncStateToBackend();
 }
 
 function saveProjectsToStorage() {
   localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(state.projects));
+  syncStateToBackend();
 }
 
 function saveSelectedProjectToStorage() {
   localStorage.setItem(STORAGE_KEYS.SELECTED_PROJECT, state.selectedProjectId);
+  syncStateToBackend();
 }
 
 function saveConfigToStorage() {
   localStorage.setItem(STORAGE_KEYS.CONFIG, JSON.stringify(state.gitlabConfig));
+  syncStateToBackend();
 }
 
 function saveModeToStorage() {
   localStorage.setItem(STORAGE_KEYS.MODE, state.mode);
+  syncStateToBackend();
 }
+
 
 // Funções Utilitárias de Gerenciamento de Projetos
 function getDevsForProject(projectId) {
