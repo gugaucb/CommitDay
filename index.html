@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CommitDay | Monitor de Commits Diários GitLab</title>
+  <meta name="description" content="Dashboard ágil para monitoramento diário de commits dos desenvolvedores no GitLab, prevenção de perda de código e garantia de processo.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Navigation Sidebar / Topbar Header -->
+    <header class="app-header">
+      <div class="brand">
+        <div class="brand-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <h1>CommitDay</h1>
+          <span class="badge badge-subtle">GitLab Agile Monitor</span>
+        </div>
+      </div>
+
+      <!-- Mode & Controls Bar -->
+      <div class="header-controls">
+        <div class="data-mode-selector">
+          <button id="mode-demo-btn" class="mode-btn active" title="Usar dados simulados para teste">
+            <span class="status-dot demo"></span> Modo Demo
+          </button>
+          <button id="mode-gitlab-btn" class="mode-btn" title="Conectar ao GitLab Real via API">
+            <span class="status-dot gitlab"></span> GitLab Real
+          </button>
+        </div>
+
+        <button id="config-btn" class="btn btn-secondary" title="Configurar Token e URL do GitLab">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path>
+            <circle cx="12" cy="12" r="3"></circle>
+          </svg>
+          Configurações API
+        </button>
+
+        <button id="manage-devs-btn" class="btn btn-primary">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
+            <circle cx="9" cy="7" r="4"></circle>
+            <line x1="19" y1="8" x2="19" y2="14"></line>
+            <line x1="16" y1="11" x2="22" y2="11"></line>
+          </svg>
+          Gerenciar Devs
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+      <!-- Banner Alert when in Real Mode but Token Missing -->
+      <div id="api-warning-banner" class="alert-banner hidden">
+        <div class="alert-icon">⚠️</div>
+        <div class="alert-content">
+          <strong>Configuração do GitLab pendente:</strong> Insira a URL da sua instância e um Token de Acesso Válido para carregar dados em tempo real.
+        </div>
+        <button id="banner-config-btn" class="btn btn-sm btn-outline">Configurar Agora</button>
+      </div>
+
+      <!-- Top Metrics Dashboard Summary -->
+      <section class="metrics-grid">
+        <div class="metric-card glass-panel">
+          <div class="metric-header">
+            <span class="metric-title">Aderência da Equipe</span>
+            <div class="metric-icon green">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                <polyline points="22 4 12 14.01 9 11.01"></polyline>
+              </svg>
+            </div>
+          </div>
+          <div class="metric-body">
+            <span id="metric-team-adherence" class="metric-value">0%</span>
+            <span class="metric-subtext" id="metric-adherence-subtext">Dias úteis cumpridos</span>
+          </div>
+          <div class="progress-bar-container">
+            <div id="team-progress-bar" class="progress-bar-fill" style="width: 0%"></div>
+          </div>
+        </div>
+
+        <div class="metric-card glass-panel">
+          <div class="metric-header">
+            <span class="metric-title">Desenvolvedores Ativos</span>
+            <div class="metric-icon blue">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                <circle cx="9" cy="7" r="4"></circle>
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+              </svg>
+            </div>
+          </div>
+          <div class="metric-body">
+            <span id="metric-total-devs" class="metric-value">0</span>
+            <span class="metric-subtext">Devs monitorados</span>
+          </div>
+        </div>
+
+        <div class="metric-card glass-panel">
+          <div class="metric-header">
+            <span class="metric-title">Commits Hoje</span>
+            <div class="metric-icon purple">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="4"></circle>
+                <line x1="1.05" y1="12" x2="7" y2="12"></line>
+                <line x1="17" y1="12" x2="22.95" y2="12"></line>
+              </svg>
+            </div>
+          </div>
+          <div class="metric-body">
+            <span id="metric-commits-today" class="metric-value">0</span>
+            <span id="metric-devs-committed-today" class="metric-subtext">0 de 0 devs comitaram</span>
+          </div>
+        </div>
+
+        <div class="metric-card glass-panel highlight-red">
+          <div class="metric-header">
+            <span class="metric-title">Alerta de Risco</span>
+            <div class="metric-icon red">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                <line x1="12" y1="9" x2="12" y2="13"></line>
+                <line x1="12" y1="17" x2="12.01" y2="17"></line>
+              </svg>
+            </div>
+          </div>
+          <div class="metric-body">
+            <span id="metric-at-risk-devs" class="metric-value">0</span>
+            <span class="metric-subtext">Devs sem commit em dia útil</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Filter Controls & Search Section -->
+      <section class="controls-section glass-panel">
+        <div class="search-box">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          <input type="text" id="search-dev-input" placeholder="Buscar desenvolvedor por nome ou e-mail...">
+        </div>
+
+        <div class="filter-group">
+          <div class="filter-item">
+            <label for="period-select">Período:</label>
+            <select id="period-select" class="form-select">
+              <option value="7">Últimos 7 Dias</option>
+              <option value="14">Últimos 14 Dias</option>
+              <option value="30" selected>Últimos 30 Dias</option>
+              <option value="60">Últimos 60 Dias</option>
+            </select>
+          </div>
+
+          <div class="filter-item">
+            <label for="status-filter">Status:</label>
+            <select id="status-filter" class="form-select">
+              <option value="all">Todos os Status</option>
+              <option value="compliant">Conforme (>= 80%)</option>
+              <option value="warning">Atenção (50% - 79%)</option>
+              <option value="critical">Crítico (< 50%)</option>
+            </select>
+          </div>
+
+          <button id="export-csv-btn" class="btn btn-secondary" title="Exportar relatório de aderência em CSV">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            Exportar CSV
+          </button>
+        </div>
+      </section>
+
+      <!-- Calendar Matrix & Developer Monitor Section -->
+      <section class="monitor-section glass-panel">
+        <div class="section-header">
+          <div class="section-title-group">
+            <h2>Matriz Diária de Commits por Desenvolvedor</h2>
+            <p class="section-subtitle">Aderência esperada em dias úteis (Segunda a Sexta)</p>
+          </div>
+          
+          <!-- Legend -->
+          <div class="matrix-legend">
+            <div class="legend-item"><span class="cell-sample green"></span> Commit realizado</div>
+            <div class="legend-item"><span class="cell-sample red"></span> Sem commit (Dia útil)</div>
+            <div class="legend-item"><span class="cell-sample weekend"></span> Fim de semana</div>
+          </div>
+        </div>
+
+        <!-- Dynamic Matrix Container -->
+        <div id="matrix-container" class="matrix-scroll-wrapper">
+          <div class="loading-spinner-container" id="matrix-loading">
+            <div class="spinner"></div>
+            <span>Carregando commits do GitLab...</span>
+          </div>
+          <!-- Table dynamically populated by JS -->
+          <table id="devs-matrix-table" class="devs-matrix-table">
+            <thead>
+              <tr id="matrix-header-row">
+                <!-- Header content dynamically generated -->
+              </tr>
+            </thead>
+            <tbody id="matrix-body-rows">
+              <!-- Body rows dynamically generated -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Detailed Developer Cards Grid -->
+      <section class="dev-cards-section">
+        <div class="section-header">
+          <h2>Detalhamento Individual da Equipe</h2>
+        </div>
+        <div id="dev-cards-grid" class="dev-cards-grid">
+          <!-- Dynamically populated cards -->
+        </div>
+      </section>
+    </main>
+
+    <!-- Modal: Gerenciar Desenvolvedores -->
+    <div id="modal-manage-devs" class="modal-overlay hidden">
+      <div class="modal-content glass-panel">
+        <div class="modal-header">
+          <h3>Gerenciar Desenvolvedores Monitorados</h3>
+          <button class="modal-close" data-close="modal-manage-devs">&times;</button>
+        </div>
+        <div class="modal-body">
+          <form id="add-dev-form" class="add-dev-form">
+            <h4>Adicionar Novo Desenvolvedor</h4>
+            <div class="form-grid">
+              <div class="form-group">
+                <label for="dev-name-input">Nome Completo *</label>
+                <input type="text" id="dev-name-input" class="form-input" placeholder="Ex: Ana Silva" required>
+              </div>
+              <div class="form-group">
+                <label for="dev-email-input">E-mail no GitLab *</label>
+                <input type="email" id="dev-email-input" class="form-input" placeholder="ana.silva@empresa.com" required>
+              </div>
+              <div class="form-group">
+                <label for="dev-username-input">Username no GitLab</label>
+                <input type="text" id="dev-username-input" class="form-input" placeholder="anasilva">
+              </div>
+              <div class="form-group">
+                <label for="dev-team-input">Equipe / Squad</label>
+                <input type="text" id="dev-team-input" class="form-input" placeholder="Squad Checkout">
+              </div>
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm">Adicionar Desenvolvedor</button>
+          </form>
+
+          <hr class="divider">
+
+          <h4>Desenvolvedores Atuais</h4>
+          <div class="devs-list-container">
+            <ul id="devs-manage-list" class="devs-manage-list">
+              <!-- Dynamically populated dev item list -->
+            </ul>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" data-close="modal-manage-devs">Fechar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Configuração da API do GitLab -->
+    <div id="modal-gitlab-config" class="modal-overlay hidden">
+      <div class="modal-content glass-panel">
+        <div class="modal-header">
+          <h3>Configurações da Conexão com o GitLab</h3>
+          <button class="modal-close" data-close="modal-gitlab-config">&times;</button>
+        </div>
+        <div class="modal-body">
+          <form id="gitlab-config-form">
+            <div class="form-group">
+              <label for="gitlab-url-input">URL do GitLab *</label>
+              <input type="url" id="gitlab-url-input" class="form-input" placeholder="https://gitlab.com ou https://gitlab.suaempresa.com" required>
+              <small class="form-help">Para GitLab SaaS use https://gitlab.com. Para auto-hospedado, informe a URL completa.</small>
+            </div>
+            
+            <div class="form-group">
+              <label for="gitlab-token-input">Personal Access Token (PAT) *</label>
+              <input type="password" id="gitlab-token-input" class="form-input" placeholder="glpat-..." required>
+              <small class="form-help">Crie um token no GitLab com os escopos: <code>read_api</code> e <code>read_repository</code>.</small>
+            </div>
+
+            <div class="form-group">
+              <label for="gitlab-project-id-input">ID do Projeto / Grupo (Opcional)</label>
+              <input type="text" id="gitlab-project-id-input" class="form-input" placeholder="Ex: 12345678 ou nome-do-grupo">
+              <small class="form-help">Se preenchido, os commits serão buscados prioritariamente nestes projetos.</small>
+            </div>
+
+            <div class="form-actions">
+              <button type="button" id="test-gitlab-connection-btn" class="btn btn-secondary">Testar Conexão</button>
+              <button type="submit" class="btn btn-primary">Salvar e Conectar</button>
+            </div>
+
+            <div id="connection-status-msg" class="connection-status hidden"></div>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" data-close="modal-gitlab-config">Cancelar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <span>CommitDay &copy; 2026 — Monitoramento Ágil e Aderência ao GitLab</span>
+      <span class="footer-status" id="footer-status-label">Modo: Demonstração</span>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

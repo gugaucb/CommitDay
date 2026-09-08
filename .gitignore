@@ -1,0 +1,13 @@
+# Dependencies & build
+node_modules/
+dist/
+.DS_Store
+
+# Temporary & scratch files
+scratch/
+.scratch/
+
+# IDE & OS
+.vscode/
+.idea/
+*.log

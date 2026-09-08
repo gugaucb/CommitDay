@@ -1,0 +1,758 @@
+/**
+ * CommitDay - Dashboard de Monitoramento Diário de Commits no GitLab
+ * Lógica principal da aplicação
+ */
+
+// Chaves do localStorage
+const STORAGE_KEYS = {
+  DEVS: 'commitday_developers',
+  CONFIG: 'commitday_gitlab_config',
+  MODE: 'commitday_data_mode'
+};
+
+// Desenvolvedores padrão para o Modo Demo
+const DEFAULT_DEMO_DEVS = [
+  { id: 'dev-1', name: 'Ana Silva', email: 'ana.silva@empresa.com', username: 'anasilva', team: 'Squad Checkout' },
+  { id: 'dev-2', name: 'Bruno Costa', email: 'bruno.costa@empresa.com', username: 'brunocosta', team: 'Squad Backend' },
+  { id: 'dev-3', name: 'Carla Mendes', email: 'carla.mendes@empresa.com', username: 'carlamendes', team: 'Squad Frontend' },
+  { id: 'dev-4', name: 'Diego Oliveira', email: 'diego.oliveira@empresa.com', username: 'diegooliveira', team: 'Squad Mobile' },
+  { id: 'dev-5', name: 'Elena Rostova', email: 'elena.rostova@empresa.com', username: 'elenarostova', team: 'Squad DevOps' },
+  { id: 'dev-6', name: 'Felipe Santos', email: 'felipe.santos@empresa.com', username: 'felipesantos', team: 'Squad Core' }
+];
+
+// Estado da Aplicação
+const state = {
+  mode: 'demo', // 'demo' | 'gitlab'
+  periodDays: 30,
+  searchTerm: '',
+  statusFilter: 'all',
+  developers: [],
+  gitlabConfig: {
+    url: 'https://gitlab.com',
+    token: '',
+    projectId: ''
+  },
+  commitData: {}, // Map<devId, Map<dateString, commitCount>>
+  isLoading: false
+};
+
+// Inicialização da Aplicação
+document.addEventListener('DOMContentLoaded', () => {
+  loadStateFromStorage();
+  setupEventListeners();
+  refreshDashboard();
+});
+
+// Carrega configurações e lista de desenvolvedores do localStorage
+function loadStateFromStorage() {
+  const savedMode = localStorage.getItem(STORAGE_KEYS.MODE);
+  if (savedMode) state.mode = savedMode;
+
+  const savedDevs = localStorage.getItem(STORAGE_KEYS.DEVS);
+  if (savedDevs) {
+    try {
+      state.developers = JSON.parse(savedDevs);
+    } catch (e) {
+      state.developers = [...DEFAULT_DEMO_DEVS];
+    }
+  } else {
+    state.developers = [...DEFAULT_DEMO_DEVS];
+    saveDevelopersToStorage();
+  }
+
+  const savedConfig = localStorage.getItem(STORAGE_KEYS.CONFIG);
+  if (savedConfig) {
+    try {
+      state.gitlabConfig = JSON.parse(savedConfig);
+    } catch (e) {}
+  }
+}
+
+function saveDevelopersToStorage() {
+  localStorage.setItem(STORAGE_KEYS.DEVS, JSON.stringify(state.developers));
+}
+
+function saveConfigToStorage() {
+  localStorage.setItem(STORAGE_KEYS.CONFIG, JSON.stringify(state.gitlabConfig));
+}
+
+function saveModeToStorage() {
+  localStorage.setItem(STORAGE_KEYS.MODE, state.mode);
+}
+
+// Event Listeners da UI
+function setupEventListeners() {
+  // Alteração de Modo (Demo / GitLab Real)
+  const modeDemoBtn = document.getElementById('mode-demo-btn');
+  const modeGitlabBtn = document.getElementById('mode-gitlab-btn');
+
+  modeDemoBtn.addEventListener('click', () => setMode('demo'));
+  modeGitlabBtn.addEventListener('click', () => setMode('gitlab'));
+
+  // Modais
+  document.getElementById('config-btn').addEventListener('click', () => openModal('modal-gitlab-config'));
+  document.getElementById('banner-config-btn').addEventListener('click', () => openModal('modal-gitlab-config'));
+  document.getElementById('manage-devs-btn').addEventListener('click', () => {
+    renderManageDevsList();
+    openModal('modal-manage-devs');
+  });
+
+  document.querySelectorAll('.modal-close, [data-close]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const modalId = e.target.getAttribute('data-close') || e.target.closest('.modal-overlay').id;
+      closeModal(modalId);
+    });
+  });
+
+  // Filtros & Pesquisa
+  document.getElementById('period-select').addEventListener('change', (e) => {
+    state.periodDays = parseInt(e.target.value, 10);
+    refreshDashboard();
+  });
+
+  document.getElementById('status-filter').addEventListener('change', (e) => {
+    state.statusFilter = e.target.value;
+    renderDashboardComponents();
+  });
+
+  document.getElementById('search-dev-input').addEventListener('input', (e) => {
+    state.searchTerm = e.target.value.toLowerCase().trim();
+    renderDashboardComponents();
+  });
+
+  // Formulário Adicionar Dev
+  document.getElementById('add-dev-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const name = document.getElementById('dev-name-input').value.trim();
+    const email = document.getElementById('dev-email-input').value.trim();
+    const username = document.getElementById('dev-username-input').value.trim();
+    const team = document.getElementById('dev-team-input').value.trim() || 'Geral';
+
+    if (!name || !email) return;
+
+    const newDev = {
+      id: 'dev-' + Date.now(),
+      name,
+      email,
+      username: username || email.split('@')[0],
+      team
+    };
+
+    state.developers.push(newDev);
+    saveDevelopersToStorage();
+    e.target.reset();
+    renderManageDevsList();
+    refreshDashboard();
+  });
+
+  // Formulário GitLab Config
+  document.getElementById('gitlab-config-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    state.gitlabConfig.url = document.getElementById('gitlab-url-input').value.trim().replace(/\/$/, '');
+    state.gitlabConfig.token = document.getElementById('gitlab-token-input').value.trim();
+    state.gitlabConfig.projectId = document.getElementById('gitlab-project-id-input').value.trim();
+
+    saveConfigToStorage();
+    closeModal('modal-gitlab-config');
+    
+    if (state.mode === 'gitlab') {
+      refreshDashboard();
+    } else {
+      setMode('gitlab');
+    }
+  });
+
+  // Testar Conexão GitLab
+  document.getElementById('test-gitlab-connection-btn').addEventListener('click', testGitLabConnection);
+
+  // Exportar CSV
+  document.getElementById('export-csv-btn').addEventListener('click', exportAdherenceReportCSV);
+}
+
+function setMode(newMode) {
+  state.mode = newMode;
+  saveModeToStorage();
+
+  document.getElementById('mode-demo-btn').classList.toggle('active', newMode === 'demo');
+  document.getElementById('mode-gitlab-btn').classList.toggle('active', newMode === 'gitlab');
+
+  const footerStatus = document.getElementById('footer-status-label');
+  footerStatus.textContent = newMode === 'demo' ? 'Modo: Demonstração' : 'Modo: Conexão Real GitLab';
+
+  refreshDashboard();
+}
+
+function openModal(modalId) {
+  const modal = document.getElementById(modalId);
+  if (modal) {
+    if (modalId === 'modal-gitlab-config') {
+      document.getElementById('gitlab-url-input').value = state.gitlabConfig.url;
+      document.getElementById('gitlab-token-input').value = state.gitlabConfig.token;
+      document.getElementById('gitlab-project-id-input').value = state.gitlabConfig.projectId;
+      document.getElementById('connection-status-msg').classList.add('hidden');
+    }
+    modal.classList.remove('hidden');
+  }
+}
+
+function closeModal(modalId) {
+  const modal = document.getElementById(modalId);
+  if (modal) modal.classList.add('hidden');
+}
+
+// Atualiza os Dados e a Interface
+async function refreshDashboard() {
+  const warningBanner = document.getElementById('api-warning-banner');
+  const loadingIndicator = document.getElementById('matrix-loading');
+  const matrixTable = document.getElementById('devs-matrix-table');
+
+  if (state.mode === 'gitlab' && (!state.gitlabConfig.url || !state.gitlabConfig.token)) {
+    warningBanner.classList.remove('hidden');
+  } else {
+    warningBanner.classList.add('hidden');
+  }
+
+  loadingIndicator.classList.remove('hidden');
+  matrixTable.style.opacity = '0.4';
+
+  if (state.mode === 'demo') {
+    state.commitData = generateDemoCommitData(state.developers, state.periodDays);
+  } else {
+    state.commitData = await fetchGitLabRealCommitData(state.developers, state.periodDays);
+  }
+
+  loadingIndicator.classList.add('hidden');
+  matrixTable.style.opacity = '1';
+
+  renderDashboardComponents();
+}
+
+// Gerador de Dados Simulados Realistas para o Modo Demo
+function generateDemoCommitData(devs, daysCount) {
+  const data = {};
+  const today = new Date();
+
+  devs.forEach((dev, index) => {
+    data[dev.id] = {};
+    
+    // Perfil de aderência diferente para cada dev simulado
+    let adherenceRate = 0.90; // Padrão bom (ex: Ana)
+    if (index === 1) adherenceRate = 0.95; // Bruno (excepcional)
+    if (index === 2) adherenceRate = 0.75; // Carla (atenção)
+    if (index === 3) adherenceRate = 0.40; // Diego (crítico, dias ausentes)
+    if (index === 4) adherenceRate = 0.85; // Elena
+    if (index === 5) adherenceRate = 0.60; // Felipe
+
+    for (let i = 0; i < daysCount; i++) {
+      const d = new Date(today);
+      d.setDate(today.getDate() - i);
+      const dateStr = formatDateKey(d);
+      const dayOfWeek = d.getDay(); // 0 = Domingo, 6 = Sábado
+      const isWeekend = (dayOfWeek === 0 || dayOfWeek === 6);
+
+      if (isWeekend) {
+        // Pouquíssimos commits no fim de semana (10% de chance)
+        data[dev.id][dateStr] = Math.random() < 0.10 ? Math.floor(Math.random() * 3) + 1 : 0;
+      } else {
+        // Dia útil: aplicar taxa de aderência simulada
+        const committed = Math.random() < adherenceRate;
+        data[dev.id][dateStr] = committed ? Math.floor(Math.random() * 6) + 1 : 0;
+      }
+    }
+  });
+
+  return data;
+}
+
+// Busca Real de Commits na API REST do GitLab
+async function fetchGitLabRealCommitData(devs, daysCount) {
+  const data = {};
+  devs.forEach(dev => { data[dev.id] = {}; });
+
+  if (!state.gitlabConfig.url || !state.gitlabConfig.token) {
+    return data;
+  }
+
+  const sinceDate = new Date();
+  sinceDate.setDate(sinceDate.getDate() - daysCount);
+  const sinceISO = sinceDate.toISOString();
+
+  try {
+    let projects = [];
+    
+    // Se ID do projeto foi informado, busca direto
+    if (state.gitlabConfig.projectId) {
+      projects = [{ id: state.gitlabConfig.projectId }];
+    } else {
+      // Busca primeiros 20 projetos acessíveis
+      const res = await fetch(`${state.gitlabConfig.url}/api/v4/projects?membership=true&per_page=20&order_by=last_activity_at`, {
+        headers: { 'PRIVATE-TOKEN': state.gitlabConfig.token }
+      });
+      if (res.ok) {
+        projects = await res.json();
+      }
+    }
+
+    for (const project of projects) {
+      const commitsRes = await fetch(`${state.gitlabConfig.url}/api/v4/projects/${project.id}/repository/commits?since=${sinceISO}&per_page=100`, {
+        headers: { 'PRIVATE-TOKEN': state.gitlabConfig.token }
+      });
+
+      if (!commitsRes.ok) continue;
+      const commits = await commitsRes.json();
+
+      commits.forEach(commit => {
+        const commitDate = new Date(commit.created_at || commit.committed_date);
+        const dateStr = formatDateKey(commitDate);
+        const authorEmail = (commit.author_email || '').toLowerCase();
+        const authorName = (commit.author_name || '').toLowerCase();
+
+        // Mapeia commit para o desenvolvedor correspondente por e-mail ou username/nome
+        const matchedDev = devs.find(d => 
+          d.email.toLowerCase() === authorEmail || 
+          d.name.toLowerCase() === authorName ||
+          (d.username && authorEmail.includes(d.username.toLowerCase()))
+        );
+
+        if (matchedDev) {
+          if (!data[matchedDev.id][dateStr]) {
+            data[matchedDev.id][dateStr] = 0;
+          }
+          data[matchedDev.id][dateStr]++;
+        }
+      });
+    }
+  } catch (err) {
+    console.error('Erro ao buscar dados do GitLab:', err);
+  }
+
+  return data;
+}
+
+// Testa a Conexão com o GitLab
+async function testGitLabConnection() {
+  const url = document.getElementById('gitlab-url-input').value.trim().replace(/\/$/, '');
+  const token = document.getElementById('gitlab-token-input').value.trim();
+  const statusMsg = document.getElementById('connection-status-msg');
+
+  if (!url || !token) {
+    statusMsg.className = 'connection-status error';
+    statusMsg.textContent = 'Por favor, informe a URL e o Personal Access Token.';
+    statusMsg.classList.remove('hidden');
+    return;
+  }
+
+  statusMsg.className = 'connection-status';
+  statusMsg.textContent = 'Testando conexão com o GitLab...';
+  statusMsg.classList.remove('hidden');
+
+  try {
+    const res = await fetch(`${url}/api/v4/user`, {
+      headers: { 'PRIVATE-TOKEN': token }
+    });
+
+    if (res.ok) {
+      const user = await res.json();
+      statusMsg.className = 'connection-status success';
+      statusMsg.textContent = `Conexão efetuada com sucesso! Conectado como: ${user.name} (@${user.username})`;
+    } else {
+      statusMsg.className = 'connection-status error';
+      statusMsg.textContent = `Falha na autenticação (HTTP ${res.status}). Verifique o token fornecido.`;
+    }
+  } catch (err) {
+    statusMsg.className = 'connection-status error';
+    statusMsg.textContent = `Erro de conexão: ${err.message}. Verifique a URL do servidor.`;
+  }
+}
+
+// Cálculo da Lista de Dias no Período Selecionado
+function getPeriodDaysList(count) {
+  const days = [];
+  const today = new Date();
+
+  for (let i = count - 1; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(today.getDate() - i);
+    const dayOfWeek = d.getDay();
+    days.push({
+      date: d,
+      dateStr: formatDateKey(d),
+      dayOfWeek,
+      isWeekend: dayOfWeek === 0 || dayOfWeek === 6,
+      label: d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
+      weekdayLabel: d.toLocaleDateString('pt-BR', { weekday: 'narrow' })
+    });
+  }
+  return days;
+}
+
+// Renderização dos Componentes
+function renderDashboardComponents() {
+  const periodDaysList = getPeriodDaysList(state.periodDays);
+
+  // Calcula estatísticas individuais por dev
+  const devStatsList = state.developers.map(dev => {
+    let workingDaysTotal = 0;
+    let workingDaysWithCommits = 0;
+    let totalCommits = 0;
+    let currentStreak = 0;
+    let isStreakActive = true;
+    let missingWorkdaysStreak = 0;
+    let todayCommitted = false;
+
+    const todayStr = formatDateKey(new Date());
+
+    periodDaysList.forEach(day => {
+      const commitsOnDay = (state.commitData[dev.id] && state.commitData[dev.id][day.dateStr]) || 0;
+      totalCommits += commitsOnDay;
+
+      if (day.dateStr === todayStr && commitsOnDay > 0) {
+        todayCommitted = true;
+      }
+
+      if (!day.isWeekend) {
+        workingDaysTotal++;
+        if (commitsOnDay > 0) {
+          workingDaysWithCommits++;
+        }
+      }
+    });
+
+    // Calcula streak de dias úteis com commit (do mais recente para trás)
+    for (let i = periodDaysList.length - 1; i >= 0; i--) {
+      const day = periodDaysList[i];
+      if (day.isWeekend) continue; // Ignora fins de semana no cálculo de streak
+
+      const commits = (state.commitData[dev.id] && state.commitData[dev.id][day.dateStr]) || 0;
+      
+      if (commits > 0 && isStreakActive) {
+        currentStreak++;
+      } else {
+        isStreakActive = false;
+      }
+
+      if (commits === 0) {
+        missingWorkdaysStreak++;
+      } else {
+        break; // Interrompe contagem de ausência no primeiro commit encontrado
+      }
+    }
+
+    const adherenceRate = workingDaysTotal > 0 ? Math.round((workingDaysWithCommits / workingDaysTotal) * 100) : 0;
+    
+    let statusCategory = 'compliant';
+    if (adherenceRate < 50) statusCategory = 'critical';
+    else if (adherenceRate < 80) statusCategory = 'warning';
+
+    return {
+      dev,
+      workingDaysTotal,
+      workingDaysWithCommits,
+      totalCommits,
+      currentStreak,
+      missingWorkdaysStreak,
+      todayCommitted,
+      adherenceRate,
+      statusCategory
+    };
+  });
+
+  // Filtra desenvolvedores por busca e status
+  const filteredDevStats = devStatsList.filter(item => {
+    const matchesSearch = item.dev.name.toLowerCase().includes(state.searchTerm) || 
+                          item.dev.email.toLowerCase().includes(state.searchTerm) ||
+                          item.dev.team.toLowerCase().includes(state.searchTerm);
+
+    const matchesStatus = state.statusFilter === 'all' || item.statusCategory === state.statusFilter;
+
+    return matchesSearch && matchesStatus;
+  });
+
+  // Renderiza Seções
+  renderMetricsSummary(devStatsList);
+  renderMatrixTable(periodDaysList, filteredDevStats);
+  renderDevCardsGrid(filteredDevStats);
+}
+
+// Renderiza Métricas Globais do Topo
+function renderMetricsSummary(devStatsList) {
+  const totalDevs = devStatsList.length;
+  
+  let totalAdherenceSum = 0;
+  let commitsTodayTotal = 0;
+  let devsCommittedTodayCount = 0;
+  let atRiskDevsCount = 0;
+
+  devStatsList.forEach(item => {
+    totalAdherenceSum += item.adherenceRate;
+    if (item.todayCommitted) {
+      devsCommittedTodayCount++;
+    }
+    // Considera em risco quem tem aderência baixa ou está sem commit há 2+ dias úteis
+    if (item.adherenceRate < 70 || item.missingWorkdaysStreak >= 2) {
+      atRiskDevsCount++;
+    }
+  });
+
+  const teamAdherence = totalDevs > 0 ? Math.round(totalAdherenceSum / totalDevs) : 0;
+
+  document.getElementById('metric-team-adherence').textContent = `${teamAdherence}%`;
+  document.getElementById('team-progress-bar').style.width = `${teamAdherence}%`;
+  document.getElementById('metric-total-devs').textContent = totalDevs;
+  
+  // Commits hoje (soma de commits do dia atual)
+  const todayStr = formatDateKey(new Date());
+  let commitsTodaySum = 0;
+  devStatsList.forEach(item => {
+    commitsTodaySum += (state.commitData[item.dev.id] && state.commitData[item.dev.id][todayStr]) || 0;
+  });
+
+  document.getElementById('metric-commits-today').textContent = commitsTodaySum;
+  document.getElementById('metric-devs-committed-today').textContent = `${devsCommittedTodayCount} de ${totalDevs} devs comitaram hoje`;
+  document.getElementById('metric-at-risk-devs').textContent = atRiskDevsCount;
+}
+
+// Renderiza a Tabela Matriz Diária
+function renderMatrixTable(periodDaysList, filteredDevStats) {
+  const headerRow = document.getElementById('matrix-header-row');
+  const bodyRows = document.getElementById('matrix-body-rows');
+
+  headerRow.innerHTML = `
+    <th class="col-dev-name">Desenvolvedor</th>
+    <th title="Taxa de Aderência em dias úteis">% Aderência</th>
+    <th title="Sequência atual de dias úteis com commit">Streak</th>
+    ${periodDaysList.map(day => `
+      <th class="${day.isWeekend ? 'weekend-header' : ''}">
+        <div>${day.weekdayLabel}</div>
+        <div style="font-size:0.7rem; color:var(--text-dim);">${day.label}</div>
+      </th>
+    `).join('')}
+  `;
+
+  if (filteredDevStats.length === 0) {
+    bodyRows.innerHTML = `
+      <tr>
+        <td colspan="${3 + periodDaysList.length}" style="text-align:center; padding: 2rem; color: var(--text-muted);">
+          Nenhum desenvolvedor encontrado com os filtros aplicados.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  bodyRows.innerHTML = filteredDevStats.map(item => {
+    const initials = item.dev.name.split(' ').map(n => n[0]).slice(0, 2).join('');
+    const badgeClass = item.statusCategory === 'compliant' ? 'badge-success' : 
+                       item.statusCategory === 'warning' ? 'badge-warning' : 'badge-danger';
+
+    return `
+      <tr>
+        <td class="col-dev-name">
+          <div class="dev-info-cell">
+            <div class="dev-avatar-sm">${initials}</div>
+            <div>
+              <div class="dev-name-text">${escapeHtml(item.dev.name)}</div>
+              <div class="dev-email-sub">${escapeHtml(item.dev.team)}</div>
+            </div>
+          </div>
+        </td>
+        <td>
+          <span class="badge ${badgeClass}">${item.adherenceRate}%</span>
+        </td>
+        <td>
+          <span style="font-family:var(--font-mono); font-weight:600; color:${item.currentStreak > 0 ? 'var(--color-success)' : 'var(--text-dim)'}">
+            🔥 ${item.currentStreak}d
+          </span>
+        </td>
+        ${periodDaysList.map(day => {
+          const commits = (state.commitData[item.dev.id] && state.commitData[item.dev.id][day.dateStr]) || 0;
+          let cellClass = 'weekend';
+          let title = `${day.label} (${day.weekdayLabel}): Fim de semana`;
+
+          if (!day.isWeekend) {
+            if (commits > 0) {
+              cellClass = 'committed';
+              title = `${day.label}: ${commits} commit(s) por ${item.dev.name}`;
+            } else {
+              cellClass = 'missing';
+              title = `${day.label}: Sem commits registrado!`;
+            }
+          } else if (commits > 0) {
+            cellClass = 'committed';
+            title = `${day.label}: ${commits} commit(s) (Fim de semana)`;
+          }
+
+          return `
+            <td class="day-cell">
+              <div class="cell-status ${cellClass}" title="${escapeHtml(title)}">
+                ${commits > 0 ? commits : ''}
+              </div>
+            </td>
+          `;
+        }).join('')}
+      </tr>
+    `;
+  }).join('');
+}
+
+// Renderiza Cards Individuais dos Desenvolvedores
+function renderDevCardsGrid(filteredDevStats) {
+  const grid = document.getElementById('dev-cards-grid');
+
+  if (filteredDevStats.length === 0) {
+    grid.innerHTML = '';
+    return;
+  }
+
+  grid.innerHTML = filteredDevStats.map(item => {
+    const initials = item.dev.name.split(' ').map(n => n[0]).slice(0, 2).join('');
+    const badgeClass = item.statusCategory === 'compliant' ? 'badge-success' : 
+                       item.statusCategory === 'warning' ? 'badge-warning' : 'badge-danger';
+    
+    const badgeLabel = item.statusCategory === 'compliant' ? 'Conforme' : 
+                        item.statusCategory === 'warning' ? 'Atenção' : 'Crítico';
+
+    return `
+      <div class="dev-card glass-panel">
+        <div class="dev-card-header">
+          <div class="dev-card-identity">
+            <div class="dev-avatar-lg">${initials}</div>
+            <div>
+              <h3 style="font-size:1rem; font-weight:600; color:#fff;">${escapeHtml(item.dev.name)}</h3>
+              <span style="font-size:0.8rem; color:var(--text-dim);">${escapeHtml(item.dev.email)}</span>
+            </div>
+          </div>
+          <span class="badge ${badgeClass}">${badgeLabel}</span>
+        </div>
+
+        <div class="dev-card-stats">
+          <div class="stat-item">
+            <span class="stat-label">Aderência Dias Úteis</span>
+            <span class="stat-val" style="color: ${item.adherenceRate >= 80 ? 'var(--color-success)' : item.adherenceRate >= 50 ? 'var(--color-warning)' : 'var(--color-danger)'}">
+              ${item.adherenceRate}%
+            </span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Sequência (Streak)</span>
+            <span class="stat-val">🔥 ${item.currentStreak} dias</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Dias Cumpridos</span>
+            <span class="stat-val">${item.workingDaysWithCommits} / ${item.workingDaysTotal}</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Total Commits</span>
+            <span class="stat-val">${item.totalCommits}</span>
+          </div>
+        </div>
+
+        <div class="dev-card-footer">
+          <span>Squad: <strong>${escapeHtml(item.dev.team)}</strong></span>
+          ${item.missingWorkdaysStreak > 0 ? `
+            <span style="color:var(--color-danger); font-weight:500;">
+              ⚠️ Sem commit há ${item.missingWorkdaysStreak}d útil
+            </span>
+          ` : `
+            <span style="color:var(--color-success); font-weight:500;">
+              ✓ Em dia
+            </span>
+          `}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+// Renderiza a Lista do Modal de Gerenciamento de Devs
+function renderManageDevsList() {
+  const container = document.getElementById('devs-manage-list');
+  container.innerHTML = state.developers.map(dev => `
+    <li class="dev-manage-item">
+      <div>
+        <strong>${escapeHtml(dev.name)}</strong> (${escapeHtml(dev.email)})
+        <div style="font-size:0.75rem; color:var(--text-dim);">Squad: ${escapeHtml(dev.team)} | User: @${escapeHtml(dev.username)}</div>
+      </div>
+      <button class="btn-icon-danger" data-remove-dev="${dev.id}" title="Remover Desenvolvedor">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="3 6 5 6 21 6"></polyline>
+          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+        </svg>
+      </button>
+    </li>
+  `).join('');
+
+  container.querySelectorAll('[data-remove-dev]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const idToRemove = e.currentTarget.getAttribute('data-remove-dev');
+      state.developers = state.developers.filter(d => d.id !== idToRemove);
+      saveDevelopersToStorage();
+      renderManageDevsList();
+      refreshDashboard();
+    });
+  });
+}
+
+// Exportar Relatório de Aderência em CSV
+function exportAdherenceReportCSV() {
+  const periodDaysList = getPeriodDaysList(state.periodDays);
+  
+  let csvContent = 'data:text/csv;charset=utf-8,';
+  csvContent += 'Nome,Email,Squad,Aderencia_Percentual,Dias_Com_Commit,Total_Dias_Uteis,Streak_Atual,Commits_Totais\n';
+
+  state.developers.forEach(dev => {
+    let workingDaysTotal = 0;
+    let workingDaysWithCommits = 0;
+    let totalCommits = 0;
+    let currentStreak = 0;
+    let isStreakActive = true;
+
+    periodDaysList.forEach(day => {
+      const commits = (state.commitData[dev.id] && state.commitData[dev.id][day.dateStr]) || 0;
+      totalCommits += commits;
+
+      if (!day.isWeekend) {
+        workingDaysTotal++;
+        if (commits > 0) workingDaysWithCommits++;
+      }
+    });
+
+    for (let i = periodDaysList.length - 1; i >= 0; i--) {
+      const day = periodDaysList[i];
+      if (day.isWeekend) continue;
+      const commits = (state.commitData[dev.id] && state.commitData[dev.id][day.dateStr]) || 0;
+      if (commits > 0 && isStreakActive) {
+        currentStreak++;
+      } else {
+        isStreakActive = false;
+      }
+    }
+
+    const rate = workingDaysTotal > 0 ? Math.round((workingDaysWithCommits / workingDaysTotal) * 100) : 0;
+
+    csvContent += `"${dev.name}","${dev.email}","${dev.team}",${rate}%,${workingDaysWithCommits},${workingDaysTotal},${currentStreak},${totalCommits}\n`;
+  });
+
+  const encodedUri = encodeURI(csvContent);
+  const link = document.createElement('a');
+  link.setAttribute('href', encodedUri);
+  link.setAttribute('download', `CommitDay_Relatorio_Aderencia_${formatDateKey(new Date())}.csv`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
+// Helpers Utilitários
+function formatDateKey(dateObj) {
+  const year = dateObj.getFullYear();
+  const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+  const day = String(dateObj.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function escapeHtml(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
