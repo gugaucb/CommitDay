@@ -922,3 +922,48 @@ body {
 }
 
 .hidden { display: none !important; }
+
+/* Badge Styles for Project Credentials */
+.badge {
+  display: inline-block;
+  padding: 0.15rem 0.45rem;
+  border-radius: 0.25rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  vertical-align: middle;
+  margin-left: 0.35rem;
+}
+
+.badge-success {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.badge-danger {
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.badge-subtle {
+  background: rgba(99, 102, 241, 0.12);
+  color: var(--accent-primary);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+}
+
+/* Form Helper Text */
+.form-help {
+  display: block;
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  margin-top: 0.25rem;
+}
+
+.form-help code {
+  background: rgba(99, 102, 241, 0.15);
+  padding: 0.1rem 0.3rem;
+  border-radius: 0.2rem;
+  font-size: 0.65rem;
+  color: var(--accent-primary);
+}
