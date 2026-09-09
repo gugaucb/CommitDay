@@ -202,7 +202,10 @@
       <section class="monitor-section glass-panel">
         <div class="section-header">
           <div class="section-title-group">
-            <h2>Matriz Diária de Commits por Desenvolvedor</h2>
+            <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap;">
+              <h2>Matriz Diária de Commits por Desenvolvedor</h2>
+              <span id="scope-branches-badge" class="badge badge-success" style="font-size:0.75rem; font-weight:500;" title="Rastreando commits em todas as branches ativas do GitLab para evitar falsos negativos">🌿 Todas as Branches</span>
+            </div>
             <p class="section-subtitle">Aderência esperada em dias úteis (Segunda a Sexta)</p>
           </div>
           
@@ -329,6 +332,12 @@
                 <input type="password" id="project-gitlab-token-input" class="form-input" placeholder="glpat-...">
                 <small class="form-help">Escopos: <code>read_api</code>, <code>read_repository</code>.</small>
               </div>
+              <div class="form-group" style="grid-column: span 2; margin-top: 0.25rem;">
+                <label class="checkbox-item" style="display:inline-flex; align-items:center; gap:0.5rem; cursor:pointer;">
+                  <input type="checkbox" id="project-all-branches-checkbox" checked>
+                  <span><strong>Monitorar todas as branches</strong> <small style="color:var(--text-dim);">(busca commits em branches isoladas de feature/bugfix, evitando falsos negativos)</small></span>
+                </label>
+              </div>
             </div>
 
             <div style="margin-top:0.5rem;">
@@ -418,6 +427,6 @@
     </footer>
   </div>
 
-  <script src="app.js?v=1.5.0"></script>
+  <script src="app.js?v=1.5.1"></script>
 </body>
 </html>

@@ -24,9 +24,9 @@ const DEFAULT_DEMO_DEVS = [
 
 // Projetos padrão para o Modo Demo
 const DEFAULT_DEMO_PROJECTS = [
-  { id: 'proj-1', name: 'Plataforma E-commerce', description: 'Sistema principal de vendas e checkout', gitlabProjectId: '101', gitlabUrl: '', gitlabToken: '', devIds: ['dev-1', 'dev-2', 'dev-3'] },
-  { id: 'proj-2', name: 'App Mobile Core', description: 'Aplicativo iOS/Android dos clientes', gitlabProjectId: '102', gitlabUrl: '', gitlabToken: '', devIds: ['dev-1', 'dev-4'] },
-  { id: 'proj-3', name: 'Infraestrutura & Cloud', description: 'Automação CI/CD e Kubernetes', gitlabProjectId: '103', gitlabUrl: '', gitlabToken: '', devIds: ['dev-2', 'dev-5', 'dev-6'] }
+  { id: 'proj-1', name: 'Plataforma E-commerce', description: 'Sistema principal de vendas e checkout', gitlabProjectId: '101', gitlabUrl: '', gitlabToken: '', allBranches: true, devIds: ['dev-1', 'dev-2', 'dev-3'] },
+  { id: 'proj-2', name: 'App Mobile Core', description: 'Aplicativo iOS/Android dos clientes', gitlabProjectId: '102', gitlabUrl: '', gitlabToken: '', allBranches: true, devIds: ['dev-1', 'dev-4'] },
+  { id: 'proj-3', name: 'Infraestrutura & Cloud', description: 'Automação CI/CD e Kubernetes', gitlabProjectId: '103', gitlabUrl: '', gitlabToken: '', allBranches: true, devIds: ['dev-2', 'dev-5', 'dev-6'] }
 ];
 
 // Estado da Aplicação
@@ -89,7 +89,8 @@ async function initBackendStorage() {
           state.projects = serverData.projects.map(proj => ({
             ...proj,
             gitlabUrl: proj.gitlabUrl || '',
-            gitlabToken: proj.gitlabToken || ''
+            gitlabToken: proj.gitlabToken || '',
+            allBranches: proj.allBranches !== false
           }));
         }
         if (Array.isArray(serverData.developers) && serverData.developers.length > 0) {
@@ -194,7 +195,8 @@ function loadStateFromStorage() {
       state.projects = loadedProjects.map(proj => ({
         ...proj,
         gitlabUrl: proj.gitlabUrl || '',
-        gitlabToken: proj.gitlabToken || ''
+        gitlabToken: proj.gitlabToken || '',
+        allBranches: proj.allBranches !== false
       }));
     } catch (e) {
       state.projects = [...DEFAULT_DEMO_PROJECTS];
@@ -542,40 +544,84 @@ async function fetchGitLabRealCommitData(devs, daysCount) {
       continue;
     }
 
-    try {
-      const commitsRes = await fetch(`${creds.url}/api/v4/projects/${encodeURIComponent(proj.gitlabProjectId)}/repository/commits?since=${sinceISO}&per_page=100`, {
-        headers: { 'PRIVATE-TOKEN': creds.token }
-      });
+    const useAllBranches = proj.allBranches !== false;
+    let page = 1;
+    const maxPages = 10; // Teto de segurança: até 1.000 commits por projeto
+    let hasMore = true;
 
-      if (!commitsRes.ok) continue;
-      const commits = await commitsRes.json();
-
-      commits.forEach(commit => {
-        const commitKey = `${commit.id}-${commit.author_email}`;
-        if (processedCommitHashes.has(commitKey)) return;
-        processedCommitHashes.add(commitKey);
-
-        const commitDate = new Date(commit.created_at || commit.committed_date);
-        const dateStr = formatDateKey(commitDate);
-        const authorEmail = (commit.author_email || '').toLowerCase();
-        const authorName = (commit.author_name || '').toLowerCase();
-
-        const matchedDev = devs.find(d => 
-          d.email.toLowerCase() === authorEmail || 
-          d.name.toLowerCase() === authorName ||
-          (d.username && authorEmail.includes(d.username.toLowerCase()))
-        );
-
-        if (matchedDev) {
-          if (!data[matchedDev.id]) data[matchedDev.id] = {};
-          if (!data[matchedDev.id][dateStr]) {
-            data[matchedDev.id][dateStr] = 0;
-          }
-          data[matchedDev.id][dateStr]++;
+    while (hasMore && page <= maxPages) {
+      try {
+        const queryParams = new URLSearchParams({
+          since: sinceISO,
+          per_page: '100',
+          page: String(page)
+        });
+        if (useAllBranches) {
+          queryParams.set('all', 'true');
         }
-      });
-    } catch (e) {
-      console.warn(`Erro ao buscar commits do projeto "${proj.name}":`, e);
+
+        const commitsRes = await fetch(`${creds.url}/api/v4/projects/${encodeURIComponent(proj.gitlabProjectId)}/repository/commits?${queryParams.toString()}`, {
+          headers: { 'PRIVATE-TOKEN': creds.token }
+        });
+
+        if (!commitsRes.ok) {
+          console.warn(`GitLab API erro HTTP ${commitsRes.status} no projeto "${proj.name}", página ${page}`);
+          break;
+        }
+
+        const commits = await commitsRes.json();
+        if (!Array.isArray(commits) || commits.length === 0) {
+          break;
+        }
+
+        let allCommitsOlderThanSince = true;
+
+        commits.forEach(commit => {
+          const commitDate = new Date(commit.created_at || commit.committed_date);
+          if (commitDate >= sinceDate) {
+            allCommitsOlderThanSince = false;
+          }
+
+          const commitKey = `${commit.id}-${commit.author_email || ''}`;
+          if (processedCommitHashes.has(commitKey)) return;
+          processedCommitHashes.add(commitKey);
+
+          const dateStr = formatDateKey(commitDate);
+          const authorEmail = (commit.author_email || '').toLowerCase();
+          const authorName = (commit.author_name || '').toLowerCase();
+
+          const matchedDev = devs.find(d => 
+            (d.email && d.email.toLowerCase() === authorEmail) || 
+            (d.name && d.name.toLowerCase() === authorName) ||
+            (d.username && authorEmail.includes(d.username.toLowerCase()))
+          );
+
+          if (matchedDev) {
+            if (!data[matchedDev.id]) data[matchedDev.id] = {};
+            if (!data[matchedDev.id][dateStr]) {
+              data[matchedDev.id][dateStr] = 0;
+            }
+            data[matchedDev.id][dateStr]++;
+          }
+        });
+
+        // Se todos os commits desta página já forem anteriores ao período solicitado, encerra paginação
+        if (allCommitsOlderThanSince) {
+          break;
+        }
+
+        const nextPage = commitsRes.headers.get('x-next-page');
+        if (nextPage && parseInt(nextPage, 10) > page) {
+          page = parseInt(nextPage, 10);
+        } else if (commits.length === 100) {
+          page++;
+        } else {
+          hasMore = false;
+        }
+      } catch (e) {
+        console.warn(`Erro ao buscar commits do projeto "${proj.name}" na página ${page}:`, e);
+        break;
+      }
     }
   }
 
@@ -666,6 +712,27 @@ function renderProjectSelectOptions() {
 // Renderização dos Componentes
 function renderDashboardComponents() {
   renderProjectSelectOptions();
+
+  // Atualiza badge de escopo de branches monitoradas
+  const scopeBadge = document.getElementById('scope-branches-badge');
+  if (scopeBadge) {
+    if (state.selectedProjectId && state.selectedProjectId !== 'all') {
+      const selectedProj = state.projects.find(p => p.id === state.selectedProjectId);
+      if (selectedProj && selectedProj.allBranches === false) {
+        scopeBadge.className = 'badge badge-subtle';
+        scopeBadge.textContent = 'Branch Padrão';
+        scopeBadge.title = 'Monitorando commits apenas na branch padrão configurada no GitLab';
+      } else {
+        scopeBadge.className = 'badge badge-success';
+        scopeBadge.textContent = '🌿 Todas as Branches';
+        scopeBadge.title = 'Rastreando commits em todas as branches ativas deste projeto para evitar falsos negativos';
+      }
+    } else {
+      scopeBadge.className = 'badge badge-success';
+      scopeBadge.textContent = '🌿 Todas as Branches';
+      scopeBadge.title = 'Rastreando commits em todas as branches ativas dos projetos para evitar falsos negativos';
+    }
+  }
 
   const periodDaysList = getPeriodDaysList(state.periodDays);
   const activeDevs = getDevsForProject(state.selectedProjectId);
@@ -1062,10 +1129,14 @@ function renderManageProjectsList() {
         ? '<span class="badge badge-success" style="font-size:0.65rem;">Token Próprio</span>'
         : (hasCreds ? '<span class="badge badge-subtle" style="font-size:0.65rem;">Fallback Global</span>' : '<span class="badge badge-danger" style="font-size:0.65rem;">Sem Token</span>');
 
+      const branchBadge = proj.allBranches !== false
+        ? '<span class="badge badge-success" style="font-size:0.65rem;" title="Monitorando commits em todas as branches">🌿 Todas as Branches</span>'
+        : '<span class="badge badge-subtle" style="font-size:0.65rem;" title="Monitorando apenas a branch padrão">Branch Padrão</span>';
+
       return `
         <li class="dev-manage-item">
           <div>
-            <strong>${escapeHtml(proj.name)}</strong> ${proj.gitlabProjectId ? `<small style="color:var(--text-dim);">(ID GitLab: ${escapeHtml(proj.gitlabProjectId)})</small>` : ''} ${credsBadge}
+            <strong>${escapeHtml(proj.name)}</strong> ${proj.gitlabProjectId ? `<small style="color:var(--text-dim);">(ID GitLab: ${escapeHtml(proj.gitlabProjectId)})</small>` : ''} ${credsBadge} ${branchBadge}
             <div style="font-size:0.75rem; color:var(--text-dim);">${escapeHtml(proj.description || 'Sem descrição')} | <strong>${devCount} dev(s) vinculados</strong></div>
           </div>
           <div style="display:flex; gap:0.4rem;">
@@ -1096,6 +1167,8 @@ function renderManageProjectsList() {
         document.getElementById('project-desc-input').value = proj.description || '';
         document.getElementById('project-gitlab-url-input').value = proj.gitlabUrl || '';
         document.getElementById('project-gitlab-token-input').value = proj.gitlabToken || '';
+        const allBranchesCb = document.getElementById('project-all-branches-checkbox');
+        if (allBranchesCb) allBranchesCb.checked = proj.allBranches !== false;
         document.getElementById('project-form-title').textContent = 'Editar Projeto';
         document.getElementById('save-project-submit-btn').textContent = 'Atualizar Projeto';
         document.getElementById('cancel-project-edit-btn').classList.remove('hidden');
@@ -1136,6 +1209,8 @@ function renderManageProjectsList() {
 function resetProjectForm() {
   document.getElementById('edit-project-id').value = '';
   document.getElementById('add-project-form').reset();
+  const allBranchesCb = document.getElementById('project-all-branches-checkbox');
+  if (allBranchesCb) allBranchesCb.checked = true;
   document.getElementById('project-form-title').textContent = 'Adicionar Novo Projeto';
   document.getElementById('save-project-submit-btn').textContent = 'Salvar Projeto';
   document.getElementById('cancel-project-edit-btn').classList.add('hidden');
@@ -1164,6 +1239,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const description = document.getElementById('project-desc-input').value.trim();
       const gitlabUrl = document.getElementById('project-gitlab-url-input').value.trim().replace(/\/$/, '');
       const gitlabToken = document.getElementById('project-gitlab-token-input').value.trim();
+      const allBranches = document.getElementById('project-all-branches-checkbox')?.checked ?? true;
 
       // Pega IDs dos desenvolvedores marcados nos checkboxes
       const checkedDevBoxes = document.querySelectorAll('input[name="project-dev-cb"]:checked');
@@ -1182,6 +1258,7 @@ document.addEventListener('DOMContentLoaded', () => {
             description,
             gitlabUrl,
             gitlabToken,
+            allBranches,
             devIds: selectedDevIds
           };
         }
@@ -1194,6 +1271,7 @@ document.addEventListener('DOMContentLoaded', () => {
           description,
           gitlabUrl,
           gitlabToken,
+          allBranches,
           devIds: selectedDevIds
         };
         state.projects.push(newProj);
