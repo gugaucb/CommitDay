@@ -44,6 +44,13 @@ const state = {
     projectId: ''
   },
   commitData: {}, // Map<devId, Map<dateString, commitCount>>
+  commitStats: {}, // Map<devId, Map<dateString, { count, additions, deletions, netLines, outliers }>>
+  productivitySettings: {
+    metric: 'netLines', // 'netLines' | 'additions' | 'commits'
+    viewMode: 'daily', // 'daily' | 'cumulative'
+    selectedDevIds: [], // IDs selecionados. Se vazio, todos são exibidos
+    showBaseline: true // Exibe a linha de referência da Squad
+  },
   isLoading: false
 };
 
@@ -342,6 +349,52 @@ function setupEventListeners() {
     renderDashboardComponents();
   });
 
+  // Controles do Módulo de Produtividade & Desvios
+  const metricPills = document.getElementById('productivity-metric-pills');
+  if (metricPills) {
+    metricPills.querySelectorAll('.pill-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const metric = e.target.getAttribute('data-metric');
+        if (!metric) return;
+        state.productivitySettings.metric = metric;
+        metricPills.querySelectorAll('.pill-btn').forEach(b => b.classList.remove('active'));
+        e.target.classList.add('active');
+        renderDashboardComponents();
+      });
+    });
+  }
+
+  const viewPills = document.getElementById('productivity-view-pills');
+  if (viewPills) {
+    viewPills.querySelectorAll('.pill-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const view = e.target.getAttribute('data-view');
+        if (!view) return;
+        state.productivitySettings.viewMode = view;
+        viewPills.querySelectorAll('.pill-btn').forEach(b => b.classList.remove('active'));
+        e.target.classList.add('active');
+        renderDashboardComponents();
+      });
+    });
+  }
+
+  const selectAllDevsBtn = document.getElementById('select-all-chart-devs-btn');
+  if (selectAllDevsBtn) {
+    selectAllDevsBtn.addEventListener('click', () => {
+      const activeDevs = getDevsForProject(state.selectedProjectId);
+      state.productivitySettings.selectedDevIds = activeDevs.map(d => d.id);
+      renderDashboardComponents();
+    });
+  }
+
+  const clearAllDevsBtn = document.getElementById('clear-all-chart-devs-btn');
+  if (clearAllDevsBtn) {
+    clearAllDevsBtn.addEventListener('click', () => {
+      state.productivitySettings.selectedDevIds = [];
+      renderDashboardComponents();
+    });
+  }
+
   // Formulário Adicionar / Editar Dev
   document.getElementById('add-dev-form').addEventListener('submit', (e) => {
     e.preventDefault();
@@ -463,9 +516,13 @@ async function refreshDashboard() {
   matrixTable.style.opacity = '0.4';
 
   if (state.mode === 'demo') {
-    state.commitData = generateDemoCommitData(state.developers, state.periodDays);
+    const demoData = generateDemoCommitData(state.developers, state.periodDays);
+    state.commitData = demoData.commitData;
+    state.commitStats = demoData.commitStats;
   } else {
-    state.commitData = await fetchGitLabRealCommitData(state.developers, state.periodDays);
+    const realData = await fetchGitLabRealCommitData(state.developers, state.periodDays);
+    state.commitData = realData.commitData;
+    state.commitStats = realData.commitStats;
   }
 
   loadingIndicator.classList.add('hidden');
@@ -476,11 +533,23 @@ async function refreshDashboard() {
 
 // Gerador de Dados Simulados Realistas para o Modo Demo
 function generateDemoCommitData(devs, daysCount) {
-  const data = {};
+  const commitData = {};
+  const commitStats = {};
   const today = new Date();
 
+  // Perfis de produtividade para os desenvolvedores simulados
+  const devProfiles = [
+    { baseAdd: 240, varAdd: 110, baseDel: 110, varDel: 50 },  // Ana: sênior, refatorações consistentes
+    { baseAdd: 420, varAdd: 170, baseDel: 50,  varDel: 30 },  // Bruno: alto volume de código novo
+    { baseAdd: 160, varAdd: 80,  baseDel: 40,  varDel: 25 },  // Carla: correções cirúrgicas e pontuais
+    { baseAdd: 210, varAdd: 100, baseDel: 30,  varDel: 20 },  // Diego: cadência baixa, tarefas pontuais
+    { baseAdd: 310, varAdd: 130, baseDel: 85,  varDel: 40 },  // Elena: equilibrada
+    { baseAdd: 280, varAdd: 140, baseDel: 35,  varDel: 25 }   // Felipe: features novas, pouca refatoração
+  ];
+
   devs.forEach((dev, index) => {
-    data[dev.id] = {};
+    commitData[dev.id] = {};
+    commitStats[dev.id] = {};
     
     // Perfil de aderência diferente para cada dev simulado
     let adherenceRate = 0.90; // Padrão bom (ex: Ana)
@@ -490,6 +559,8 @@ function generateDemoCommitData(devs, daysCount) {
     if (index === 4) adherenceRate = 0.85; // Elena
     if (index === 5) adherenceRate = 0.60; // Felipe
 
+    const profile = devProfiles[index % devProfiles.length];
+
     for (let i = 0; i < daysCount; i++) {
       const d = new Date(today);
       d.setDate(today.getDate() - i);
@@ -497,24 +568,50 @@ function generateDemoCommitData(devs, daysCount) {
       const dayOfWeek = d.getDay(); // 0 = Domingo, 6 = Sábado
       const isWeekend = (dayOfWeek === 0 || dayOfWeek === 6);
 
+      let commitsCount = 0;
       if (isWeekend) {
         // Pouquíssimos commits no fim de semana (10% de chance)
-        data[dev.id][dateStr] = Math.random() < 0.10 ? Math.floor(Math.random() * 3) + 1 : 0;
+        commitsCount = Math.random() < 0.10 ? Math.floor(Math.random() * 3) + 1 : 0;
       } else {
         // Dia útil: aplicar taxa de aderência simulada
         const committed = Math.random() < adherenceRate;
-        data[dev.id][dateStr] = committed ? Math.floor(Math.random() * 6) + 1 : 0;
+        commitsCount = committed ? Math.floor(Math.random() * 6) + 1 : 0;
       }
+
+      commitData[dev.id][dateStr] = commitsCount;
+
+      let additions = 0;
+      let deletions = 0;
+      if (commitsCount > 0) {
+        for (let c = 0; c < commitsCount; c++) {
+          const add = Math.max(15, Math.round(profile.baseAdd + (Math.random() * 2 - 1) * profile.varAdd));
+          const del = Math.max(0, Math.round(profile.baseDel + (Math.random() * 2 - 1) * profile.varDel));
+          additions += add;
+          deletions += del;
+        }
+      }
+
+      commitStats[dev.id][dateStr] = {
+        count: commitsCount,
+        additions,
+        deletions,
+        netLines: additions - deletions,
+        outliers: 0
+      };
     }
   });
 
-  return data;
+  return { commitData, commitStats };
 }
 
 // Busca Real de Commits na API REST do GitLab (credenciais por projeto com fallback global)
 async function fetchGitLabRealCommitData(devs, daysCount) {
-  const data = {};
-  devs.forEach(dev => { data[dev.id] = {}; });
+  const commitData = {};
+  const commitStats = {};
+  devs.forEach(dev => {
+    commitData[dev.id] = {};
+    commitStats[dev.id] = {};
+  });
 
   const sinceDate = new Date();
   sinceDate.setDate(sinceDate.getDate() - daysCount);
@@ -554,7 +651,8 @@ async function fetchGitLabRealCommitData(devs, daysCount) {
         const queryParams = new URLSearchParams({
           since: sinceISO,
           per_page: '100',
-          page: String(page)
+          page: String(page),
+          with_stats: 'true'
         });
         if (useAllBranches) {
           queryParams.set('all', 'true');
@@ -597,11 +695,34 @@ async function fetchGitLabRealCommitData(devs, daysCount) {
           );
 
           if (matchedDev) {
-            if (!data[matchedDev.id]) data[matchedDev.id] = {};
-            if (!data[matchedDev.id][dateStr]) {
-              data[matchedDev.id][dateStr] = 0;
+            if (!commitData[matchedDev.id]) commitData[matchedDev.id] = {};
+            if (!commitData[matchedDev.id][dateStr]) commitData[matchedDev.id][dateStr] = 0;
+            commitData[matchedDev.id][dateStr]++;
+
+            if (!commitStats[matchedDev.id]) commitStats[matchedDev.id] = {};
+            if (!commitStats[matchedDev.id][dateStr]) {
+              commitStats[matchedDev.id][dateStr] = {
+                count: 0,
+                additions: 0,
+                deletions: 0,
+                netLines: 0,
+                outliers: 0
+              };
             }
-            data[matchedDev.id][dateStr]++;
+
+            const rawStats = commit.stats || { additions: 0, deletions: 0, total: 0 };
+            const totalLines = (rawStats.total != null) ? rawStats.total : ((rawStats.additions || 0) + (rawStats.deletions || 0));
+            // Saneamento de ruído: commits anômalos com mais de 5.000 linhas alteradas
+            // (ex.: lockfiles, migrações automáticas, swagger gerado)
+            const isOutlier = totalLines > 5000;
+            const safeAdd = isOutlier ? 0 : (rawStats.additions || 0);
+            const safeDel = isOutlier ? 0 : (rawStats.deletions || 0);
+
+            commitStats[matchedDev.id][dateStr].count++;
+            commitStats[matchedDev.id][dateStr].additions += safeAdd;
+            commitStats[matchedDev.id][dateStr].deletions += safeDel;
+            commitStats[matchedDev.id][dateStr].netLines += (safeAdd - safeDel);
+            if (isOutlier) commitStats[matchedDev.id][dateStr].outliers++;
           }
         });
 
@@ -633,7 +754,7 @@ async function fetchGitLabRealCommitData(devs, daysCount) {
     warningBanner.classList.remove('hidden');
   }
 
-  return data;
+  return { commitData, commitStats };
 }
 
 // Testa a Conexão com o GitLab
@@ -817,6 +938,7 @@ function renderDashboardComponents() {
 
   // Renderiza Seções
   renderMetricsSummary(devStatsList);
+  renderProductivityAnalytics(activeDevs, periodDaysList);
   renderMatrixTable(periodDaysList, filteredDevStats);
   renderDevCardsGrid(filteredDevStats);
 }
@@ -857,6 +979,561 @@ function renderMetricsSummary(devStatsList) {
   document.getElementById('metric-commits-today').textContent = commitsTodaySum;
   document.getElementById('metric-devs-committed-today').textContent = `${devsCommittedTodayCount} de ${totalDevs} devs comitaram hoje`;
   document.getElementById('metric-at-risk-devs').textContent = atRiskDevsCount;
+}
+
+// ============================================================================
+// MÓDULO DE PRODUTIVIDADE & DESVIOS RELATIVOS (TICKETS 02, 03, 04)
+// ============================================================================
+
+// Paleta de cores vibrantes e distintas para as curvas dos desenvolvedores
+const DEV_CHART_PALETTE = [
+  { stroke: '#38bdf8', fill: 'rgba(56, 189, 248, 0.12)', name: 'Azul Celeste' },
+  { stroke: '#34d399', fill: 'rgba(52, 211, 153, 0.12)', name: 'Esmeralda' },
+  { stroke: '#fbbf24', fill: 'rgba(251, 191, 36, 0.12)', name: 'Âmbar' },
+  { stroke: '#f472b6', fill: 'rgba(244, 114, 182, 0.12)', name: 'Rosa' },
+  { stroke: '#a78bfa', fill: 'rgba(167, 139, 250, 0.12)', name: 'Púrpura' },
+  { stroke: '#22d3ee', fill: 'rgba(34, 211, 238, 0.12)', name: 'Ciano' },
+  { stroke: '#fb923c', fill: 'rgba(251, 146, 60, 0.12)', name: 'Laranja' },
+  { stroke: '#2dd4bf', fill: 'rgba(45, 212, 191, 0.12)', name: 'Turquesa' }
+];
+
+function getDevColor(index) {
+  return DEV_CHART_PALETTE[index % DEV_CHART_PALETTE.length];
+}
+
+// Extrai o valor da métrica para um dev em uma data específica
+function getDevDailyMetricValue(devId, dateStr, metricType) {
+  const stats = state.commitStats?.[devId]?.[dateStr];
+  if (!stats) return 0;
+  if (metricType === 'commits') return stats.count || 0;
+  if (metricType === 'additions') return stats.additions || 0;
+  if (metricType === 'deletions') return stats.deletions || 0;
+  // Padrão: netLines (linhas líquidas = adições - deleções, com piso zero)
+  return Math.max(0, stats.netLines != null ? stats.netLines : (stats.additions - stats.deletions));
+}
+
+// Gera a série de valores de um desenvolvedor (diária ou acumulada)
+function getDevTimeSeries(devId, metricType, isCumulative, timeline) {
+  const series = [];
+  let runningSum = 0;
+  timeline.forEach(day => {
+    const val = getDevDailyMetricValue(devId, day.dateStr, metricType);
+    if (isCumulative) {
+      runningSum += val;
+      series.push(runningSum);
+    } else {
+      series.push(val);
+    }
+  });
+  return series;
+}
+
+// Gera a série da Média da Squad (Baseline de comparação)
+function getSquadBaselineSeries(activeDevs, metricType, isCumulative, timeline) {
+  if (!activeDevs || activeDevs.length === 0) {
+    return timeline.map(() => 0);
+  }
+
+  const allSeries = activeDevs.map(dev => getDevTimeSeries(dev.id, metricType, isCumulative, timeline));
+
+  return timeline.map((_, dayIdx) => {
+    let sum = 0;
+    allSeries.forEach(s => {
+      sum += (s[dayIdx] || 0);
+    });
+    return Math.round(sum / activeDevs.length);
+  });
+}
+
+// Calcula estatísticas consolidadas e índices de desvio percentual
+function calculateProductivityAggregates(activeDevs, metricType, timeline) {
+  if (!activeDevs || activeDevs.length === 0) {
+    return {
+      devAggregates: [],
+      squadAverageTotal: 0,
+      topProducer: null,
+      topRefactorer: null,
+      balancedDevsCount: 0
+    };
+  }
+
+  const devAggregates = activeDevs.map((dev, idx) => {
+    let totalCommits = 0;
+    let totalAdditions = 0;
+    let totalDeletions = 0;
+    let totalNetLines = 0;
+
+    timeline.forEach(day => {
+      const stats = state.commitStats?.[dev.id]?.[day.dateStr] || { count: 0, additions: 0, deletions: 0, netLines: 0 };
+      totalCommits += stats.count || 0;
+      totalAdditions += stats.additions || 0;
+      totalDeletions += stats.deletions || 0;
+      totalNetLines += Math.max(0, stats.netLines != null ? stats.netLines : (stats.additions - stats.deletions));
+    });
+
+    let currentMetricTotal = totalNetLines;
+    if (metricType === 'commits') currentMetricTotal = totalCommits;
+    if (metricType === 'additions') currentMetricTotal = totalAdditions;
+
+    return {
+      dev,
+      color: getDevColor(idx),
+      totalCommits,
+      totalAdditions,
+      totalDeletions,
+      totalNetLines,
+      currentMetricTotal,
+      deviationPercent: 0
+    };
+  });
+
+  const totalSum = devAggregates.reduce((acc, item) => acc + item.currentMetricTotal, 0);
+  const squadAverageTotal = Math.round(totalSum / devAggregates.length);
+
+  let balancedDevsCount = 0;
+  devAggregates.forEach(item => {
+    if (squadAverageTotal > 0) {
+      item.deviationPercent = Math.round(((item.currentMetricTotal - squadAverageTotal) / squadAverageTotal) * 100);
+    } else {
+      item.deviationPercent = 0;
+    }
+    if (Math.abs(item.deviationPercent) <= 20) {
+      balancedDevsCount++;
+    }
+  });
+
+  const topProducer = [...devAggregates].sort((a, b) => b.totalAdditions - a.totalAdditions)[0] || null;
+  const topRefactorer = [...devAggregates].sort((a, b) => b.totalDeletions - a.totalDeletions)[0] || null;
+
+  return {
+    devAggregates,
+    squadAverageTotal,
+    topProducer,
+    topRefactorer,
+    balancedDevsCount
+  };
+}
+
+// Renderizador Principal da Seção de Produtividade
+function renderProductivityAnalytics(activeDevs, periodDaysList) {
+  const section = document.getElementById('productivity-analytics-section');
+  if (!section) return;
+
+  if (!activeDevs || activeDevs.length === 0) {
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = 'flex';
+
+  const metricType = state.productivitySettings.metric || 'netLines';
+  const isCumulative = state.productivitySettings.viewMode === 'cumulative';
+
+  // Sincroniza seleção de devs se vazia ou inválida
+  if (!state.productivitySettings.selectedDevIds || state.productivitySettings.selectedDevIds.length === 0) {
+    state.productivitySettings.selectedDevIds = activeDevs.map(d => d.id);
+  } else {
+    const activeIds = new Set(activeDevs.map(d => d.id));
+    state.productivitySettings.selectedDevIds = state.productivitySettings.selectedDevIds.filter(id => activeIds.has(id));
+    if (state.productivitySettings.selectedDevIds.length === 0) {
+      state.productivitySettings.selectedDevIds = activeDevs.map(d => d.id);
+    }
+  }
+
+  const aggregates = calculateProductivityAggregates(activeDevs, metricType, periodDaysList);
+  const baselineSeries = getSquadBaselineSeries(activeDevs, metricType, isCumulative, periodDaysList);
+
+  renderProductivitySummaryCards(aggregates, metricType, isCumulative, periodDaysList.length);
+  renderProductivityDevPills(activeDevs, aggregates);
+  renderProductivitySvgChart(periodDaysList, activeDevs, aggregates, baselineSeries, metricType, isCumulative);
+}
+
+// Renderiza os Cards de Resumo de Produtividade e Desvios
+function renderProductivitySummaryCards(aggregates, metricType, isCumulative, daysCount) {
+  const container = document.getElementById('productivity-summary-grid');
+  if (!container) return;
+
+  let metricUnit = 'linhas';
+  let metricLabel = 'Linhas Líquidas';
+  if (metricType === 'commits') {
+    metricUnit = 'commits';
+    metricLabel = 'Commits';
+  } else if (metricType === 'additions') {
+    metricUnit = 'linhas';
+    metricLabel = 'Linhas Adicionadas';
+  }
+
+  const avgVal = aggregates.squadAverageTotal;
+  const avgDaily = Math.round(avgVal / Math.max(1, daysCount));
+
+  const topProd = aggregates.topProducer;
+  const topRefact = aggregates.topRefactorer;
+
+  container.innerHTML = `
+    <div class="prod-card">
+      <div class="prod-card-header">
+        <span class="prod-card-title">Média da Squad (${metricLabel})</span>
+        <span class="prod-card-icon">📊</span>
+      </div>
+      <div class="prod-card-value">${avgVal.toLocaleString('pt-BR')} <span style="font-size:0.85rem; font-weight:500; color:var(--text-muted);">${metricUnit}</span></div>
+      <div class="prod-card-subtext">~${avgDaily.toLocaleString('pt-BR')} ${metricUnit}/dia por dev</div>
+      <span class="prod-card-badge neutral">🎯 Baseline de Referência</span>
+    </div>
+
+    <div class="prod-card">
+      <div class="prod-card-header">
+        <span class="prod-card-title">Maior Volume de Código</span>
+        <span class="prod-card-icon">⚡</span>
+      </div>
+      <div class="prod-card-value">${topProd ? escapeHtml(topProd.dev.name.split(' ')[0]) : '-'}</div>
+      <div class="prod-card-subtext">${topProd ? `+${topProd.totalAdditions.toLocaleString('pt-BR')} linhas adicionadas` : 'Sem dados'}</div>
+      <span class="prod-card-badge ${topProd && topProd.deviationPercent >= 0 ? 'positive' : 'negative'}">
+        ${topProd ? `${topProd.deviationPercent >= 0 ? '+' : ''}${topProd.deviationPercent}% vs média` : '0%'}
+      </span>
+    </div>
+
+    <div class="prod-card">
+      <div class="prod-card-header">
+        <span class="prod-card-title">Maior Refatoração / Limpeza</span>
+        <span class="prod-card-icon">🧹</span>
+      </div>
+      <div class="prod-card-value">${topRefact ? escapeHtml(topRefact.dev.name.split(' ')[0]) : '-'}</div>
+      <div class="prod-card-subtext">${topRefact ? `-${topRefact.totalDeletions.toLocaleString('pt-BR')} linhas excluídas` : 'Sem dados'}</div>
+      <span class="prod-card-badge positive">✨ Saneamento & Qualidade</span>
+    </div>
+
+    <div class="prod-card">
+      <div class="prod-card-header">
+        <span class="prod-card-title">Dispersão da Equipe</span>
+        <span class="prod-card-icon">⚖️</span>
+      </div>
+      <div class="prod-card-value">${aggregates.balancedDevsCount} <span style="font-size:0.85rem; font-weight:500; color:var(--text-muted);">de ${aggregates.devAggregates.length} devs</span></div>
+      <div class="prod-card-subtext">Alinhados com a média da squad</div>
+      <span class="prod-card-badge neutral">Faixa +/- 20% equilibrada</span>
+    </div>
+  `;
+}
+
+// Renderiza as Pílulas de Seleção de Devs no Gráfico
+function renderProductivityDevPills(activeDevs, aggregates) {
+  const container = document.getElementById('productivity-dev-pills');
+  if (!container) return;
+
+  const selectedSet = new Set(state.productivitySettings.selectedDevIds || []);
+  const showBaseline = state.productivitySettings.showBaseline !== false;
+
+  let html = `
+    <div class="dev-chart-pill baseline-pill ${showBaseline ? 'active' : ''}" id="toggle-baseline-pill" title="Clique para exibir/ocultar a linha média da squad">
+      <span class="pill-color-indicator"></span>
+      <span class="pill-dev-name">Média da Squad (Baseline)</span>
+    </div>
+  `;
+
+  aggregates.devAggregates.forEach(item => {
+    const isSelected = selectedSet.has(item.dev.id);
+    const devColor = item.color.stroke;
+    
+    let devClass = 'even';
+    let devPrefix = '';
+    if (item.deviationPercent > 5) {
+      devClass = 'above';
+      devPrefix = '+';
+    } else if (item.deviationPercent < -5) {
+      devClass = 'below';
+    }
+
+    html += `
+      <div class="dev-chart-pill ${isSelected ? 'active' : ''}" data-dev-pill="${item.dev.id}" style="--pill-color: ${devColor};" title="Clique para alternar no gráfico">
+        <span class="pill-color-indicator"></span>
+        <span class="pill-dev-name">${escapeHtml(item.dev.name)}</span>
+        <span class="pill-dev-deviation ${devClass}">${devPrefix}${item.deviationPercent}%</span>
+      </div>
+    `;
+  });
+
+  container.innerHTML = html;
+
+  // Listeners das pílulas
+  const baselinePill = document.getElementById('toggle-baseline-pill');
+  if (baselinePill) {
+    baselinePill.addEventListener('click', () => {
+      state.productivitySettings.showBaseline = !showBaseline;
+      renderDashboardComponents();
+    });
+  }
+
+  container.querySelectorAll('[data-dev-pill]').forEach(pill => {
+    pill.addEventListener('click', (e) => {
+      const devId = pill.getAttribute('data-dev-pill');
+      if (!devId) return;
+
+      const current = new Set(state.productivitySettings.selectedDevIds || []);
+      if (current.has(devId)) {
+        current.delete(devId);
+      } else {
+        current.add(devId);
+      }
+      state.productivitySettings.selectedDevIds = Array.from(current);
+      renderDashboardComponents();
+    });
+  });
+}
+
+// Renderiza o Gráfico de Linhas Interativo em SVG Nativo
+function renderProductivitySvgChart(timeline, activeDevs, aggregates, baselineSeries, metricType, isCumulative) {
+  const container = document.getElementById('productivity-chart-container');
+  const tooltip = document.getElementById('productivity-chart-tooltip');
+  if (!container) return;
+
+  const selectedSet = new Set(state.productivitySettings.selectedDevIds || []);
+  const showBaseline = state.productivitySettings.showBaseline !== false;
+
+  // Filtra devs selecionados
+  const selectedDevsAgg = aggregates.devAggregates.filter(item => selectedSet.has(item.dev.id));
+
+  // Coleta séries dos devs selecionados
+  const devSeriesList = selectedDevsAgg.map(item => ({
+    dev: item.dev,
+    color: item.color,
+    series: getDevTimeSeries(item.dev.id, metricType, isCumulative, timeline)
+  }));
+
+  // Coleta todos os valores para escala Y
+  let allVals = [];
+  if (showBaseline) {
+    allVals.push(...baselineSeries);
+  }
+  devSeriesList.forEach(ds => {
+    allVals.push(...ds.series);
+  });
+
+  let rawMax = Math.max(...allVals, 10);
+  // Calcula um teto amigável (round nice)
+  function getNiceMax(val) {
+    if (val <= 10) return 10;
+    if (val <= 25) return 25;
+    if (val <= 50) return 50;
+    if (val <= 100) return 100;
+    const exp = Math.floor(Math.log10(val));
+    const factor = Math.pow(10, exp);
+    const normalized = val / factor;
+    let nice;
+    if (normalized <= 1.2) nice = 1.2;
+    else if (normalized <= 2) nice = 2;
+    else if (normalized <= 2.5) nice = 2.5;
+    else if (normalized <= 5) nice = 5;
+    else nice = 10;
+    return Math.ceil(nice * factor);
+  }
+
+  const maxY = getNiceMax(rawMax * 1.08);
+  const minY = 0;
+
+  // Dimensões SVG
+  const svgW = 1000;
+  const svgH = 340;
+  const padL = 65;
+  const padR = 25;
+  const padT = 25;
+  const padB = 45;
+  const plotW = svgW - padL - padR;
+  const plotH = svgH - padT - padB;
+
+  const numDays = timeline.length;
+  function getX(i) {
+    if (numDays <= 1) return padL + plotW / 2;
+    return padL + (i / (numDays - 1)) * plotW;
+  }
+  function getY(v) {
+    return padT + plotH - ((v - minY) / (maxY - minY)) * plotH;
+  }
+
+  // Linhas de Grade e Eixo Y (5 níveis)
+  const gridLevels = 4;
+  let gridHtml = '';
+  for (let l = 0; l <= gridLevels; l++) {
+    const val = Math.round(minY + (l / gridLevels) * (maxY - minY));
+    const yPos = getY(val);
+    gridHtml += `
+      <line x1="${padL}" y1="${yPos}" x2="${svgW - padR}" y2="${yPos}" stroke="rgba(255, 255, 255, 0.07)" stroke-dasharray="${l === 0 ? 'none' : '4,4'}" />
+      <text x="${padL - 10}" y="${yPos + 4}" text-anchor="end" fill="var(--text-dim)" font-size="11" font-family="var(--font-mono)">${val >= 1000 ? (val / 1000).toFixed(val % 1000 === 0 ? 0 : 1) + 'k' : val}</text>
+    `;
+  }
+
+  // Rótulos do Eixo X (datas com intervalo balanceado)
+  let xAxisHtml = '';
+  const xStep = Math.max(1, Math.ceil(numDays / 8));
+  for (let i = 0; i < numDays; i += xStep) {
+    const day = timeline[i];
+    const xPos = getX(i);
+    xAxisHtml += `
+      <line x1="${xPos}" y1="${padT + plotH}" x2="${xPos}" y2="${padT + plotH + 5}" stroke="rgba(255, 255, 255, 0.2)" />
+      <text x="${xPos}" y="${padT + plotH + 20}" text-anchor="middle" fill="var(--text-muted)" font-size="11" font-family="var(--font-mono)">${day.label}</text>
+    `;
+  }
+  // Garante que o último dia (hoje) seja sempre exibido se não coincidir
+  if ((numDays - 1) % xStep !== 0) {
+    const lastIdx = numDays - 1;
+    const lastDay = timeline[lastIdx];
+    const xPos = getX(lastIdx);
+    xAxisHtml += `
+      <line x1="${xPos}" y1="${padT + plotH}" x2="${xPos}" y2="${padT + plotH + 5}" stroke="rgba(255, 255, 255, 0.2)" />
+      <text x="${xPos}" y="${padT + plotH + 20}" text-anchor="middle" fill="var(--text-main)" font-weight="600" font-size="11" font-family="var(--font-mono)">${lastDay.label}</text>
+    `;
+  }
+
+  // Gradientes e Definições
+  let defsHtml = `
+    <defs>
+      <linearGradient id="baseline-grad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#ffffff" stop-opacity="0.12" />
+        <stop offset="100%" stop-color="#ffffff" stop-opacity="0.0" />
+      </linearGradient>
+  `;
+  devSeriesList.forEach(ds => {
+    defsHtml += `
+      <linearGradient id="grad-${ds.dev.id}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="${ds.color.stroke}" stop-opacity="0.18" />
+        <stop offset="100%" stop-color="${ds.color.stroke}" stop-opacity="0.0" />
+      </linearGradient>
+    `;
+  });
+  defsHtml += `</defs>`;
+
+  // Linhas das Séries dos Desenvolvedores
+  let seriesHtml = '';
+  devSeriesList.forEach(ds => {
+    const pts = ds.series.map((val, i) => ({ x: getX(i), y: getY(val), val }));
+    const pathD = pts.map((p, idx) => (idx === 0 ? `M ${p.x.toFixed(1)} ${p.y.toFixed(1)}` : `L ${p.x.toFixed(1)} ${p.y.toFixed(1)}`)).join(' ');
+    const areaD = `${pathD} L ${pts[pts.length - 1].x.toFixed(1)} ${(padT + plotH).toFixed(1)} L ${pts[0].x.toFixed(1)} ${(padT + plotH).toFixed(1)} Z`;
+
+    // Área sob a curva
+    seriesHtml += `<path d="${areaD}" fill="url(#grad-${ds.dev.id})" />`;
+    // Linha
+    seriesHtml += `<path d="${pathD}" fill="none" stroke="${ds.color.stroke}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />`;
+    // Pontos
+    pts.forEach(p => {
+      seriesHtml += `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.5" fill="${ds.color.stroke}" stroke="#0b0f19" stroke-width="1.5" />`;
+    });
+  });
+
+  // Linha da Média da Squad (Destaque tracejado branco/ouro)
+  let baselineHtml = '';
+  if (showBaseline) {
+    const basePts = baselineSeries.map((val, i) => ({ x: getX(i), y: getY(val), val }));
+    const basePathD = basePts.map((p, idx) => (idx === 0 ? `M ${p.x.toFixed(1)} ${p.y.toFixed(1)}` : `L ${p.x.toFixed(1)} ${p.y.toFixed(1)}`)).join(' ');
+    
+    baselineHtml += `
+      <path d="${basePathD}" fill="none" stroke="#ffffff" stroke-width="2.5" stroke-dasharray="6,4" stroke-linecap="round" stroke-linejoin="round" opacity="0.95" />
+    `;
+    basePts.forEach(p => {
+      baselineHtml += `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3" fill="#ffffff" stroke="#0b0f19" stroke-width="1.5" />`;
+    });
+  }
+
+  // Crosshair Guide Line (inicialmente oculta)
+  const crosshairHtml = `
+    <line id="chart-crosshair" x1="0" y1="${padT}" x2="0" y2="${padT + plotH}" stroke="rgba(255, 255, 255, 0.35)" stroke-width="1.5" stroke-dasharray="3,3" opacity="0" pointer-events="none" />
+  `;
+
+  // Overlay invisível para captura de mouse
+  const overlayHtml = `
+    <rect id="chart-overlay-rect" x="${padL}" y="${padT}" width="${plotW}" height="${plotH}" fill="transparent" style="cursor: crosshair;" />
+  `;
+
+  container.innerHTML = `
+    <svg viewBox="0 0 ${svgW} ${svgH}" preserveAspectRatio="none" id="productivity-svg">
+      ${defsHtml}
+      ${gridHtml}
+      ${xAxisHtml}
+      ${seriesHtml}
+      ${baselineHtml}
+      ${crosshairHtml}
+      ${overlayHtml}
+    </svg>
+  `;
+
+  // Interatividade de Hover e Tooltip
+  const overlay = document.getElementById('chart-overlay-rect');
+  const crosshair = document.getElementById('chart-crosshair');
+  const svgEl = document.getElementById('productivity-svg');
+
+  if (overlay && tooltip && svgEl) {
+    overlay.addEventListener('mousemove', (e) => {
+      const rect = overlay.getBoundingClientRect();
+      const clientX = e.clientX - rect.left;
+      const progress = Math.max(0, Math.min(1, clientX / rect.width));
+      const dayIdx = Math.max(0, Math.min(numDays - 1, Math.round(progress * (numDays - 1))));
+      
+      const day = timeline[dayIdx];
+      const targetX = getX(dayIdx);
+
+      // Posiciona crosshair
+      crosshair.setAttribute('x1', targetX);
+      crosshair.setAttribute('x2', targetX);
+      crosshair.setAttribute('opacity', '1');
+
+      // Monta conteúdo do Tooltip
+      let metricLabel = 'linhas';
+      if (metricType === 'commits') metricLabel = 'commits';
+
+      let itemsHtml = '';
+      if (showBaseline) {
+        const baseVal = baselineSeries[dayIdx] || 0;
+        itemsHtml += `
+          <div class="tooltip-item">
+            <div class="tooltip-item-name">
+              <span class="tooltip-dot" style="background:#fff;"></span>
+              <strong>Média Squad:</strong>
+            </div>
+            <span class="tooltip-item-val">${baseVal.toLocaleString('pt-BR')} ${metricLabel}</span>
+          </div>
+        `;
+      }
+
+      devSeriesList.forEach(ds => {
+        const val = ds.series[dayIdx] || 0;
+        const baseVal = baselineSeries[dayIdx] || 0;
+        let diffBadge = '';
+        if (baseVal > 0) {
+          const diff = Math.round(((val - baseVal) / baseVal) * 100);
+          const diffSign = diff >= 0 ? '+' : '';
+          const diffColor = diff >= 0 ? 'var(--color-success)' : 'var(--color-danger)';
+          diffBadge = `<span style="font-size:0.7rem; color:${diffColor}; margin-left:4px;">(${diffSign}${diff}%)</span>`;
+        }
+
+        itemsHtml += `
+          <div class="tooltip-item">
+            <div class="tooltip-item-name">
+              <span class="tooltip-dot" style="background:${ds.color.stroke};"></span>
+              <span>${escapeHtml(ds.dev.name)}:</span>
+            </div>
+            <span class="tooltip-item-val">${val.toLocaleString('pt-BR')} ${diffBadge}</span>
+          </div>
+        `;
+      });
+
+      tooltip.innerHTML = `
+        <div class="tooltip-date">
+          <span>📅 ${day.label} (${isCumulative ? 'Acumulado até hoje' : 'Produção do dia'})</span>
+        </div>
+        ${itemsHtml}
+      `;
+
+      // Posiciona Tooltip próximo ao cursor dentro do wrapper
+      const wrapperRect = container.parentElement.getBoundingClientRect();
+      const posX = e.clientX - wrapperRect.left;
+      const posY = e.clientY - wrapperRect.top;
+
+      tooltip.style.left = `${posX}px`;
+      tooltip.style.top = `${Math.max(10, posY - 20)}px`;
+      tooltip.classList.remove('hidden');
+    });
+
+    overlay.addEventListener('mouseleave', () => {
+      crosshair.setAttribute('opacity', '0');
+      tooltip.classList.add('hidden');
+    });
+  }
 }
 
 // Renderiza a Tabela Matriz Diária
