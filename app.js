@@ -1090,7 +1090,10 @@ function calculateProductivityAggregates(activeDevs, metricType, timeline) {
   const totalSum = devAggregates.reduce((acc, item) => acc + item.currentMetricTotal, 0);
   const squadAverageTotal = Math.round(totalSum / devAggregates.length);
 
-  let balancedDevsCount = 0;
+  const balancedDevs = [];
+  const aboveDevs = [];
+  const belowDevs = [];
+
   devAggregates.forEach(item => {
     if (squadAverageTotal > 0) {
       item.deviationPercent = Math.round(((item.currentMetricTotal - squadAverageTotal) / squadAverageTotal) * 100);
@@ -1098,7 +1101,11 @@ function calculateProductivityAggregates(activeDevs, metricType, timeline) {
       item.deviationPercent = 0;
     }
     if (Math.abs(item.deviationPercent) <= 20) {
-      balancedDevsCount++;
+      balancedDevs.push(item);
+    } else if (item.deviationPercent > 20) {
+      aboveDevs.push(item);
+    } else {
+      belowDevs.push(item);
     }
   });
 
@@ -1110,7 +1117,10 @@ function calculateProductivityAggregates(activeDevs, metricType, timeline) {
     squadAverageTotal,
     topProducer,
     topRefactorer,
-    balancedDevsCount
+    balancedDevsCount: balancedDevs.length,
+    balancedDevs,
+    aboveDevs,
+    belowDevs
   };
 }
 
@@ -1201,16 +1211,110 @@ function renderProductivitySummaryCards(aggregates, metricType, isCumulative, da
       <span class="prod-card-badge positive">✨ Saneamento & Qualidade</span>
     </div>
 
-    <div class="prod-card">
+    <div class="prod-card" id="card-team-dispersion">
       <div class="prod-card-header">
         <span class="prod-card-title">Dispersão da Equipe</span>
         <span class="prod-card-icon">⚖️</span>
       </div>
       <div class="prod-card-value">${aggregates.balancedDevsCount} <span style="font-size:0.85rem; font-weight:500; color:var(--text-muted);">de ${aggregates.devAggregates.length} devs</span></div>
-      <div class="prod-card-subtext">Alinhados com a média da squad</div>
-      <span class="prod-card-badge neutral">Faixa +/- 20% equilibrada</span>
+      <div class="prod-card-subtext">Alinhados com a média da squad (±20%)</div>
+      
+      <!-- Lista de Chips com os Desenvolvedores na Faixa Equilibrada -->
+      <div class="dispersion-chips-list">
+        ${aggregates.balancedDevs.map(d => `
+          <span class="dispersion-chip" title="${escapeHtml(d.dev.name)}: ${d.deviationPercent >= 0 ? '+' : ''}${d.deviationPercent}% em relação à média">
+            <span class="chip-dot" style="background:${d.color.stroke};"></span>
+            ${escapeHtml(d.dev.name.split(' ')[0])} <small>(${d.deviationPercent >= 0 ? '+' : ''}${d.deviationPercent}%)</small>
+          </span>
+        `).join('')}
+        ${aggregates.balancedDevs.length === 0 ? '<span class="dispersion-empty">Nenhum dev exatamente na faixa ±20%</span>' : ''}
+      </div>
+
+      <button type="button" class="btn-text-link dispersion-toggle-btn" id="open-dispersion-modal-btn">
+        <span>🔍 Ver distribuição completa</span>
+        <small style="color:var(--text-dim);">(${aggregates.aboveDevs.length} acima, ${aggregates.belowDevs.length} abaixo)</small>
+      </button>
     </div>
   `;
+
+  const openDispersionBtn = document.getElementById('open-dispersion-modal-btn');
+  if (openDispersionBtn) {
+    openDispersionBtn.addEventListener('click', () => {
+      openDispersionModal(aggregates, metricType, metricLabel, metricUnit);
+    });
+  }
+}
+
+// Abre Modal com Detalhamento Completo da Dispersão da Squad
+function openDispersionModal(aggregates, metricType, metricLabel, metricUnit) {
+  const container = document.getElementById('dispersion-breakdown-content');
+  if (!container) return;
+
+  function renderDevRow(item) {
+    const diffSign = item.deviationPercent >= 0 ? '+' : '';
+    let diffClass = 'balanced';
+    if (item.deviationPercent > 20) diffClass = 'above';
+    if (item.deviationPercent < -20) diffClass = 'below';
+
+    return `
+      <div class="dispersion-dev-row">
+        <div class="dispersion-dev-info">
+          <span class="tooltip-dot" style="background:${item.color.stroke};"></span>
+          <div>
+            <div class="dispersion-dev-name">${escapeHtml(item.dev.name)}</div>
+            <div class="dispersion-dev-meta">${escapeHtml(item.dev.team || 'Squad')} • ${item.currentMetricTotal.toLocaleString('pt-BR')} ${metricUnit}</div>
+          </div>
+        </div>
+        <span class="dispersion-dev-deviation ${diffClass}">${diffSign}${item.deviationPercent}%</span>
+      </div>
+    `;
+  }
+
+  container.innerHTML = `
+    <!-- Coluna Acima da Média -->
+    <div class="dispersion-column">
+      <div class="dispersion-column-header">
+        <span class="dispersion-column-title">
+          <span style="color:var(--color-success);">▲</span> Acima da Média (&gt; +20%)
+        </span>
+        <span class="dispersion-column-count above">${aggregates.aboveDevs.length} devs</span>
+      </div>
+      <div class="dispersion-dev-list">
+        ${aggregates.aboveDevs.map(renderDevRow).join('')}
+        ${aggregates.aboveDevs.length === 0 ? '<span class="dispersion-empty">Nenhum desenvolvedor acima de +20%</span>' : ''}
+      </div>
+    </div>
+
+    <!-- Coluna Faixa Equilibrada -->
+    <div class="dispersion-column">
+      <div class="dispersion-column-header">
+        <span class="dispersion-column-title">
+          <span style="color:var(--accent-primary);">●</span> Faixa Equilibrada (±20%)
+        </span>
+        <span class="dispersion-column-count balanced">${aggregates.balancedDevs.length} devs</span>
+      </div>
+      <div class="dispersion-dev-list">
+        ${aggregates.balancedDevs.map(renderDevRow).join('')}
+        ${aggregates.balancedDevs.length === 0 ? '<span class="dispersion-empty">Nenhum desenvolvedor na faixa equilibrada</span>' : ''}
+      </div>
+    </div>
+
+    <!-- Coluna Abaixo da Média -->
+    <div class="dispersion-column">
+      <div class="dispersion-column-header">
+        <span class="dispersion-column-title">
+          <span style="color:var(--color-danger);">▼</span> Abaixo da Média (&lt; -20%)
+        </span>
+        <span class="dispersion-column-count below">${aggregates.belowDevs.length} devs</span>
+      </div>
+      <div class="dispersion-dev-list">
+        ${aggregates.belowDevs.map(renderDevRow).join('')}
+        ${aggregates.belowDevs.length === 0 ? '<span class="dispersion-empty">Nenhum desenvolvedor abaixo de -20%</span>' : ''}
+      </div>
+    </div>
+  `;
+
+  openModal('modal-dispersion-breakdown');
 }
 
 // Renderiza as Pílulas de Seleção de Devs no Gráfico
@@ -1435,9 +1539,9 @@ function renderProductivitySvgChart(timeline, activeDevs, aggregates, baselineSe
     <line id="chart-crosshair" x1="0" y1="${padT}" x2="0" y2="${padT + plotH}" stroke="rgba(255, 255, 255, 0.35)" stroke-width="1.5" stroke-dasharray="3,3" opacity="0" pointer-events="none" />
   `;
 
-  // Overlay invisível para captura de mouse
+  // Overlay invisível para captura de mouse com pointer-events=all
   const overlayHtml = `
-    <rect id="chart-overlay-rect" x="${padL}" y="${padT}" width="${plotW}" height="${plotH}" fill="transparent" style="cursor: crosshair;" />
+    <rect id="chart-overlay-rect" x="${padL}" y="${padT}" width="${plotW}" height="${plotH}" fill="none" pointer-events="all" style="cursor: crosshair;" />
   `;
 
   container.innerHTML = `
@@ -1458,7 +1562,7 @@ function renderProductivitySvgChart(timeline, activeDevs, aggregates, baselineSe
   const svgEl = document.getElementById('productivity-svg');
 
   if (overlay && tooltip && svgEl) {
-    overlay.addEventListener('mousemove', (e) => {
+    const onChartHover = (e) => {
       const rect = overlay.getBoundingClientRect();
       const clientX = e.clientX - rect.left;
       const progress = Math.max(0, Math.min(1, clientX / rect.width));
@@ -1519,20 +1623,49 @@ function renderProductivitySvgChart(timeline, activeDevs, aggregates, baselineSe
         ${itemsHtml}
       `;
 
-      // Posiciona Tooltip próximo ao cursor dentro do wrapper
+      // Posiciona Tooltip de forma inteligente para evitar cortes nas bordas
       const wrapperRect = container.parentElement.getBoundingClientRect();
       const posX = e.clientX - wrapperRect.left;
       const posY = e.clientY - wrapperRect.top;
+      const wrapperWidth = wrapperRect.width;
 
-      tooltip.style.left = `${posX}px`;
-      tooltip.style.top = `${Math.max(10, posY - 20)}px`;
       tooltip.classList.remove('hidden');
-    });
+      const tooltipWidth = tooltip.offsetWidth || 260;
+      const tooltipHeight = tooltip.offsetHeight || 180;
 
-    overlay.addEventListener('mouseleave', () => {
+      // Se o cursor estiver além de 50% da largura, ancora o tooltip à esquerda do cursor
+      let leftPos = posX + 16;
+      if (posX > wrapperWidth * 0.5 || leftPos + tooltipWidth > wrapperWidth - 15) {
+        leftPos = posX - tooltipWidth - 16;
+      }
+      // Proteção contra corte na borda esquerda
+      if (leftPos < 12) {
+        leftPos = 12;
+      }
+
+      // Proteção contra corte vertical
+      let topPos = posY - tooltipHeight / 2;
+      if (topPos < 10) {
+        topPos = 10;
+      } else if (topPos + tooltipHeight > wrapperRect.height - 10) {
+        topPos = wrapperRect.height - tooltipHeight - 10;
+      }
+
+      tooltip.style.left = `${leftPos}px`;
+      tooltip.style.top = `${topPos}px`;
+      tooltip.style.transform = 'none';
+    };
+
+    overlay.addEventListener('mousemove', onChartHover);
+    svgEl.addEventListener('mousemove', onChartHover);
+
+    const onChartLeave = () => {
       crosshair.setAttribute('opacity', '0');
       tooltip.classList.add('hidden');
-    });
+    };
+
+    overlay.addEventListener('mouseleave', onChartLeave);
+    svgEl.addEventListener('mouseleave', onChartLeave);
   }
 }
 
