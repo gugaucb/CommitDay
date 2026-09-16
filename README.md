@@ -14,6 +14,7 @@
 - **Persistência Híbrida (SQLite / Arquivo / Navegador):** Armazenamento em banco de dados SQLite (padrão) ou arquivo JSON persistente no backend Python/FastAPI, com fallback gracioso para o `localStorage` do navegador caso executado de forma puramente estática.
 - **Suporte a Docker & Docker Compose:** Containerização pronta para produção com volume montado no host (`./data:/app/data`), garantindo que seus dados nunca se percam.
 - **Dashboard de Métricas em Tempo Real:** Aderência global da equipe, total de devs ativos, commits no dia e alerta visual de desenvolvedores sem commit.
+- **Produtividade & Desvios Relativos:** Gráfico temporal interativo (SVG nativo) comparando linhas líquidas (+/-), adições brutas ou volume de commits de cada desenvolvedor contra a média (baseline) da squad, em visão diária ou acumulada, com filtro de ruído e tooltips flutuantes.
 - **Matriz Diária de Commits (Heatmap):** Grade interativa exibindo dias com commit (verde), dias úteis sem commit (vermelho) e finais de semana (cinza).
 - **Taxa de Aderência & Streaks:** Cálculo automático da taxa % em dias úteis (Segunda a Sexta) e marcador de sequência de dias (*Streak* 🔥).
 - **Modo Duplo de Operação:**
