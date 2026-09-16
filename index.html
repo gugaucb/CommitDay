@@ -198,6 +198,67 @@
         </div>
       </section>
 
+      <!-- Productivity & Team Deviations Analytics Section -->
+      <section class="productivity-section glass-panel" id="productivity-analytics-section">
+        <div class="section-header productivity-header">
+          <div class="section-title-group">
+            <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap;">
+              <h2>Produtividade & Desvios Relativos</h2>
+              <span class="badge badge-subtle">Comparativo vs Média da Squad</span>
+            </div>
+            <p class="section-subtitle">Acompanhe tendências diárias ou acumuladas e identifique desvios de produtividade em relação à média</p>
+          </div>
+
+          <!-- Controls for Metric and View Mode -->
+          <div class="productivity-toolbar">
+            <div class="toggle-control-group">
+              <span class="control-label">Métrica:</span>
+              <div class="pill-group" id="productivity-metric-pills">
+                <button type="button" class="pill-btn active" data-metric="netLines" title="Linhas Adicionadas menos Linhas Excluídas">Linhas Líquidas (+/-)</button>
+                <button type="button" class="pill-btn" data-metric="additions" title="Total de Linhas de Código Adicionadas">Adições Brutas</button>
+                <button type="button" class="pill-btn" data-metric="commits" title="Número Total de Commits Realizados">Commits</button>
+              </div>
+            </div>
+
+            <div class="toggle-control-group">
+              <span class="control-label">Visão:</span>
+              <div class="pill-group" id="productivity-view-pills">
+                <button type="button" class="pill-btn active" data-view="daily" title="Volume produzido a cada dia">Diário</button>
+                <button type="button" class="pill-btn" data-view="cumulative" title="Curva cumulativa de entrega no período">Acumulado</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Summary Metric Cards (Média Squad, Destaques) -->
+        <div class="productivity-summary-grid" id="productivity-summary-grid">
+          <!-- Populated dynamically by JS -->
+        </div>
+
+        <!-- Developer Selection Filter Bar with Color Badges -->
+        <div class="productivity-dev-filters">
+          <div class="dev-filters-header">
+            <span class="filter-instruction">Desenvolvedores no gráfico:</span>
+            <div class="dev-filter-actions">
+              <button type="button" id="select-all-chart-devs-btn" class="btn-text-link">Selecionar Todos</button>
+              <span class="separator">|</span>
+              <button type="button" id="clear-all-chart-devs-btn" class="btn-text-link">Limpar</button>
+            </div>
+          </div>
+          <div class="dev-pills-container" id="productivity-dev-pills">
+            <!-- Populated dynamically by JS -->
+          </div>
+        </div>
+
+        <!-- Interactive SVG Chart Wrapper -->
+        <div class="productivity-chart-wrapper">
+          <div id="productivity-chart-container" class="productivity-chart-container">
+            <!-- Dynamic SVG rendered by JS -->
+          </div>
+          <div id="productivity-chart-tooltip" class="chart-tooltip hidden"></div>
+        </div>
+      </section>
+
       <!-- Calendar Matrix & Developer Monitor Section -->
       <section class="monitor-section glass-panel">
         <div class="section-header">
